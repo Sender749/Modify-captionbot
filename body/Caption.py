@@ -17,6 +17,7 @@ async def strtCap(bot, message):
     user_id = message.from_user.id
     await insert(user_id)
     bot_me = await bot.get_me()
+    bot_username = bot_me.username
     keyboard = InlineKeyboardMarkup(
         [
             [
