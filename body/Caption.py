@@ -229,21 +229,21 @@ async def about(bot, query):
 @Client.on_chat_member_updated()
 async def on_bot_added(bot, update):
     try:
-        if update.new_chat_member and update.new_chat_member.user.id == bot.me.id:
-            if update.new_chat_member.status == "administrator":
-                channel_id = update.chat.id
-                channel_title = update.chat.title
+        # Make sure bot is the new member
+        if update.new_chat_member.user.id == (await bot.get_me()).id:
+            channel_id = update.chat.id
+            channel_title = update.chat.title
 
-                # Save channel to user who added bot
-                if update.from_user:
-                    await add_channel(update.from_user.id, channel_id, channel_title)
-                    try:
-                        await bot.send_message(
-                            chat_id=update.from_user.id,
-                            text=f"✅ Bot is now admin in **{channel_title}**."
-                        )
-                    except Exception as e:
-                        print(f"Failed to send PM: {e}")
-
+            # Save channel for the user who added bot
+            if update.from_user:
+                await add_channel(update.from_user.id, channel_id, channel_title)
+                try:
+                    await bot.send_message(
+                        chat_id=update.from_user.id,
+                        text=f"✅ Bot is now admin in **{channel_title}**."
+                    )
+                except Exception as e:
+                    print(f"Failed to send PM: {e}")
     except Exception as e:
         print(f"on_chat_member_updated error: {e}")
+
