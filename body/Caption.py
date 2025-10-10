@@ -10,7 +10,7 @@ from pyrogram.errors import FloodWait
 from pyrogram.types import *
 from pyrogram import Client, filters, errors
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from .database import usersdb  
+from .database import users  
 
 @Client.on_message(filters.command("start") & filters.private)
 async def strtCap(bot, message):
@@ -113,7 +113,7 @@ async def delCap(_, msg):
 @Client.on_message(filters.command("settings") & filters.private)
 async def user_settings(bot, message):
     user_id = message.from_user.id
-    channels = await usersdb.get_user_channels(user_id)
+    channels = await users.get_user_channels(user_id)
 
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
@@ -245,7 +245,7 @@ async def on_bot_added(bot, update):
 
                 if promoter:
                     # Save to DB
-                    await usersdb.add_user_channel(promoter, channel_id, channel_title)
+                    await users.add_user_channel(promoter, channel_id, channel_title)
                     # Send confirmation PM
                     try:
                         await bot.send_message(
