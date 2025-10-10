@@ -7,38 +7,23 @@ chnl_ids = db.chnl_ids
 users = db.users
 user_channels = db.user_channels 
 
-# ---------------- Caption functions ----------------
-async def addCap(chnl_id, caption):
-    dets = {"chnl_id": chnl_id, "caption": caption}
-    await chnl_ids.insert_one(dets)
-
-async def updateCap(chnl_id, caption):
-    await chnl_ids.update_one({"chnl_id": chnl_id}, {"$set": {"caption": caption}})
-
-async def get_channel_caption(chnl_id: int):
-    return await chnl_ids.find_one({"chnl_id": chnl_id})
-
-async def delete_channel_caption(chnl_id: int):
-    await chnl_ids.delete_one({"chnl_id": chnl_id})
-
 # ---------------- User functions ----------------
-async def insert(user_id):
-    user_det = {"_id": user_id}
+async def insert_user(user_id: int):
+    """Add user to DB if not exists"""
     try:
-        await users.insert_one(user_det)
+        await users.update_one({"_id": user_id}, {"$setOnInsert": {"channels": []}}, upsert=True)
     except:
         pass
-        
+
 async def total_user():
-    user = await users.count_documents({})
-    return user
+    return await users.count_documents({})
 
-async def getid():
-    all_users = users.find({})
-    return all_users
+async def get_all_users():
+    return users.find({})
 
-async def delete(id):
-    await users.delete_one(id)
+async def delete_user(user_id):
+    await users.delete_one({"_id": user_id})
+
 # ---------------- Channel functions ----------------
 async def add_channel(user_id: int, channel_id: int, channel_title: str):
     """Add channel to user channels"""
@@ -52,3 +37,17 @@ async def get_user_channels(user_id: int):
     """Get all channels added by user"""
     user = await users.find_one({"_id": user_id})
     return user.get("channels", []) if user else []
+
+# ---------------- Caption functions ----------------
+async def addCap(chnl_id: int, caption: str):
+    dets = {"chnl_id": chnl_id, "caption": caption}
+    await chnl_ids.insert_one(dets)
+
+async def updateCap(chnl_id: int, caption: str):
+    await chnl_ids.update_one({"chnl_id": chnl_id}, {"$set": {"caption": caption}})
+
+async def get_channel_caption(chnl_id: int):
+    return await chnl_ids.find_one({"chnl_id": chnl_id})
+
+async def delete_channel_caption(chnl_id: int):
+    await chnl_ids.delete_one({"chnl_id": chnl_id})
