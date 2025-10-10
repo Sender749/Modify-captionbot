@@ -5,6 +5,7 @@ from Script import script
 from .database import *
 import re
 from pyrogram.errors import FloodWait
+await asyncio.sleep(1)
 from pyrogram.types import *
 
 @Client.on_message(filters.command("start") & filters.private)
@@ -64,7 +65,7 @@ async def broadcast(bot, message):
             try:
                 await silicon.edit(f"<u>ʙʀᴏᴀᴅᴄᴀsᴛ ᴘʀᴏᴄᴇssɪɴɢ</u>\n\n• ᴛᴏᴛᴀʟ ᴜsᴇʀs: {tot}\n• sᴜᴄᴄᴇssғᴜʟ: {success}\n• ʙʟᴏᴄᴋᴇᴅ ᴜsᴇʀs: {blocked}\n• ᴅᴇʟᴇᴛᴇᴅ ᴀᴄᴄᴏᴜɴᴛs: {deactivated}\n• ᴜɴsᴜᴄᴄᴇssғᴜʟ: {failed}")
             except FloodWait as e:
-                await asyncio.sleep(t.x)
+                await asyncio.sleep(e.value)
         await silicon.edit(f"<u>ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ</u>\n\n• ᴛᴏᴛᴀʟ ᴜsᴇʀs: {tot}\n• sᴜᴄᴄᴇssғᴜʟ: {success}\n• ʙʟᴏᴄᴋᴇᴅ ᴜsᴇʀs: {blocked}\n• ᴅᴇʟᴇᴛᴇᴅ ᴀᴄᴄᴏᴜɴᴛs: {deactivated}\n• ᴜɴsᴜᴄᴄᴇssғᴜʟ: {failed}")
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("restart"))
@@ -99,7 +100,7 @@ async def delCap(_, msg):
         await chnl_ids.delete_one({"chnl_id": chnl_id})
         return await msg.reply("<b><i>✓ Sᴜᴄᴄᴇssғᴜʟʟʏ... Dᴇʟᴇᴛᴇᴅ Yᴏᴜʀ Cᴀᴘᴛɪᴏɴ Nᴏᴡ I ᴀᴍ Usɪɴɢ Mʏ Dᴇғᴀᴜʟᴛ Cᴀᴘᴛɪᴏɴ </i></b>")
     except Exception as e:
-        e_val = await msg.replay(f"ERR I GOT: {e}")
+        e_val = await msg.reply(f"ERR I GOT: {e}")
         await asyncio.sleep(5)
         await e_val.delete()
         return
@@ -137,10 +138,10 @@ async def reCap(bot, message):
                     if cap_dets:
                         cap = cap_dets["caption"]
                         replaced_caption = cap.format(file_name=file_name, file_size=get_size(file_size), default_caption=default_caption, language=language, year=year)
-                        await message.edit(replaced_caption)
+                        await message.edit_caption(replaced_caption)
                     else:
                         replaced_caption = DEF_CAP.format(file_name=file_name, file_size=get_size(file_size), default_caption=default_caption, language=language, year=year)
-                        await message.edit(replaced_caption)
+                        await message.edit_caption(replaced_caption)
                 except FloodWait as e:
                     await asyncio.sleep(e.x)
                     continue
