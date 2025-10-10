@@ -10,7 +10,7 @@ from pyrogram.errors import FloodWait
 from pyrogram.types import *
 from pyrogram import Client, filters, errors
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from database import usersdb  
+from .database import usersdb  
 
 @Client.on_message(filters.command("start") & filters.private)
 async def strtCap(bot, message):
