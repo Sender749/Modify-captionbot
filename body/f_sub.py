@@ -2,11 +2,11 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import UserNotParticipant
 from info import *
-from .database import insert
+from .database import insert_user
 
 async def not_subscribed(_, client, message):
     user_id = int(message.from_user.id)
-    await insert(user_id)
+    await insert_user(user_id)
     if not FORCE_SUB:
         return False
     try:             
