@@ -103,11 +103,36 @@ async def delCap(bot, message):
 async def user_settings(bot, message):
     user_id = message.from_user.id
     channels = await get_user_channels(user_id)
-    
+
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
 
-    buttons = [[InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")] for ch in channels]
+    valid_channels = []
+    for ch in channels:
+        try:
+            member = await bot.get_chat_member(ch['channel_id'], "me")
+            if member.status in ["administrator"]:
+                valid_channels.append(ch)
+            else:
+                # bot is not admin anymore, remove it
+                await users.update_one(
+                    {"_id": user_id},
+                    {"$pull": {"channels": {"channel_id": ch['channel_id']}}}
+                )
+        except Exception:
+            # channel inaccessible, remove it
+            await users.update_one(
+                {"_id": user_id},
+                {"$pull": {"channels": {"channel_id": ch['channel_id']}}}
+            )
+
+    if not valid_channels:
+        return await message.reply_text("No active channels found where I am still admin.")
+
+    buttons = [
+        [InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")]
+        for ch in valid_channels
+    ]
 
     await message.reply_text(
         "📋 Your added channels:",
