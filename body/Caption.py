@@ -6,15 +6,20 @@ from .database import *
 import re
 from pyrogram.errors import FloodWait
 from pyrogram.types import *
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from database import usersdb  
+from info import *
 
 @Client.on_message(filters.command("start") & filters.private)
 async def strtCap(bot, message):
     user_id = int(message.from_user.id)
+    bot_me = await bot.get_me()
     await insert(user_id)
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("➕️ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ➕️", url=f"https://t.me/CustomCaptionBot?startchannel=true")
+                InlineKeyboardButton("➕️ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ➕️", url=f"https://t.me/{bot_username}?startchannel=true")
             ],[
                 InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"),
                 InlineKeyboardButton("Aʙᴏᴜᴛ", callback_data="about")
@@ -25,7 +30,7 @@ async def strtCap(bot, message):
     )
     await message.reply_photo(
         photo=SILICON_PIC,
-        caption=f"<b>Hᴇʟʟᴏ {message.from_user.mention}\n\nɪ ᴀᴍ ᴀᴜᴛᴏ ᴄᴀᴘᴛɪᴏɴ ʙᴏᴛ ᴡɪᴛʜ ᴄᴜsᴛᴏᴍ ᴄᴀᴘᴛɪᴏɴ.\n\nFᴏʀ ᴍᴏʀᴇ ɪɴғᴏ ʜᴏᴡ ᴛᴏ ᴜsᴇ ᴍᴇ ᴄʟɪᴄᴋ ᴏɴ ʜᴇʟᴘ ʙᴜᴛᴛᴏɴ ɢɪᴠᴇɴ ʙᴇʟᴏᴡ.\n\nMᴀɪɴᴛᴀɪɴᴇᴅ ʙʏ »<a href='https://t.me/Silicon_Bot_Update'>Sɪʟɪᴄᴏɴ Bᴏᴛᴢ</a></b>",
+        caption=f"<b>Hᴇʟʟᴏ {message.from_user.mention}\n\nɪ ᴀᴍ ᴀᴜᴛᴏ ᴄᴀᴘᴛɪᴏɴ ʙᴏᴛ ᴡɪᴛʜ ᴄᴜsᴛᴏᴍ ᴄᴀᴘᴛɪᴏɴ.\n\nFᴏʀ ᴍᴏʀᴇ ɪɴғᴏ ʜᴏᴡ ᴛᴏ ᴜsᴇ ᴍᴇ ᴄʟɪᴄᴋ ᴏɴ ʜᴇʟᴘ ʙᴜᴛᴛᴏɴ ɢɪᴠᴇɴ ʙᴇʟᴏᴡ.</b>",
         reply_markup=keyboard
     )
 
@@ -103,6 +108,26 @@ async def delCap(_, msg):
         await asyncio.sleep(5)
         await e_val.delete()
         return
+
+@Client.on_message(filters.command("settings") & filters.private)
+async def user_settings(bot, message):
+    user_id = message.from_user.id
+    channels = await usersdb.get_user_channels(user_id)
+
+    if not channels:
+        return await message.reply_text("You haven’t added me to any channels yet!")
+
+    buttons = []
+    for ch in channels:
+        buttons.append(
+            [InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")]
+        )
+
+    await message.reply_text(
+        "📋 Your added channels:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
 
 def extract_language(default_caption):
     language_pattern = r'\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Hin)\b'#Contribute More Language If You Have
@@ -205,21 +230,25 @@ async def about(bot, query):
 )
 
 @Client.on_chat_member_updated()
-async def on_admin_added(bot, event):
-    # Check if bot was added or promoted to admin
-    if event.new_chat_member and event.new_chat_member.user.id == (await bot.get_me()).id:
-        if event.new_chat_member.status in ["administrator", "creator"]:
-            try:
-                chat = event.chat
-                # Try to find who might have added the bot
-                if event.from_user:
-                    user_id = event.from_user.id
-                    mention = event.from_user.mention
+async def on_bot_added(bot, update):
+    try:
+        # Only run if the change is about the bot itself
+        if update.new_chat_member and update.new_chat_member.user.id == bot.me.id:
+            if update.new_chat_member.status == "administrator":
+                channel_id = update.chat.id
+                channel_title = update.chat.title
+
+                # Save to DB
+                await usersdb.add_channel(update.from_user.id, channel_id, channel_title)
+
+                # Send confirmation PM to user
+                try:
                     await bot.send_message(
-                        chat_id=user_id,
-                        text=f"✅ ʙᴏᴛ ɪs ɴᴏᴡ ᴀᴅᴍɪɴ ɪɴ <b>{chat.title}</b> ᴄʜᴀɴɴᴇʟ.",
-                        parse_mode="html"
+                        chat_id=update.from_user.id,
+                        text=f"✅ Bot is now admin in **{channel_title}**."
                     )
-                    print(f"Bot added by {mention} in {chat.title}")
-            except Exception as e:
-                print(f"Error sending admin confirmation: {e}")
+                except Exception as e:
+                    print(f"Failed to send PM: {e}")
+
+    except Exception as e:
+        print(f"on_chat_member_updated error: {e}")
