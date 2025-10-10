@@ -204,3 +204,22 @@ async def about(bot, query):
 
 )
 
+@Client.on_chat_member_updated()
+async def on_admin_added(bot, event):
+    # Check if bot was added or promoted to admin
+    if event.new_chat_member and event.new_chat_member.user.id == (await bot.get_me()).id:
+        if event.new_chat_member.status in ["administrator", "creator"]:
+            try:
+                chat = event.chat
+                # Try to find who might have added the bot
+                if event.from_user:
+                    user_id = event.from_user.id
+                    mention = event.from_user.mention
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=f"✅ ʙᴏᴛ ɪs ɴᴏᴡ ᴀᴅᴍɪɴ ɪɴ <b>{chat.title}</b> ᴄʜᴀɴɴᴇʟ.",
+                        parse_mode="html"
+                    )
+                    print(f"Bot added by {mention} in {chat.title}")
+            except Exception as e:
+                print(f"Error sending admin confirmation: {e}")
