@@ -50,18 +50,18 @@ async def broadcast(bot, message):
         await silicon.edit(f"ʙʀᴏᴀᴅᴄᴀsᴛɪɴɢ...")
         async for user in all_users:
             try:
-                time.sleep(1)
+                await asyncio.sleep(1)
                 await message.reply_to_message.copy(user['_id'])
                 success += 1
             except errors.InputUserDeactivated:
                 deactivated +=1
-                await delete({"_id": user['_id']})
+                await delete_user(user['_id'])
             except errors.UserIsBlocked:
                 blocked +=1
-                await delete({"_id": user['_id']})
+                await delete_user(user['_id'])
             except Exception as e:
                 failed += 1
-                await delete({"_id": user['_id']})
+                await delete_user(user['_id'])
                 pass
             try:
                 await silicon.edit(f"<u>ʙʀᴏᴀᴅᴄᴀsᴛ ᴘʀᴏᴄᴇssɪɴɢ</u>\n\n• ᴛᴏᴛᴀʟ ᴜsᴇʀs: {tot}\n• sᴜᴄᴄᴇssғᴜʟ: {success}\n• ʙʟᴏᴄᴋᴇᴅ ᴜsᴇʀs: {blocked}\n• ᴅᴇʟᴇᴛᴇᴅ ᴀᴄᴄᴏᴜɴᴛs: {deactivated}\n• ᴜɴsᴜᴄᴄᴇssғᴜʟ: {failed}")
