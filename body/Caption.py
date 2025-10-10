@@ -5,7 +5,6 @@ from Script import script
 from .database import *
 import re
 from pyrogram.errors import FloodWait
-await asyncio.sleep(1)
 from pyrogram.types import *
 
 @Client.on_message(filters.command("start") & filters.private)
