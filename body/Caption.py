@@ -101,6 +101,7 @@ async def delCap(bot, message):
 async def user_settings(bot, message):
     user_id = message.from_user.id
     channels = await get_user_channels(user_id)
+    print(f"DEBUG: User {user_id} channels: {channels}")  # <- debug
 
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
@@ -111,6 +112,7 @@ async def user_settings(bot, message):
         "📋 Your added channels:",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
+
 
 # ---------------- Auto Caption ----------------
 
