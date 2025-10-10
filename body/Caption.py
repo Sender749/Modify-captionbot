@@ -1,21 +1,22 @@
+import asyncio
+import re
+import os
+import sys
 from pyrogram import *
 from info import *
-import asyncio
 from Script import script
 from .database import *
-import re
 from pyrogram.errors import FloodWait
 from pyrogram.types import *
-from pyrogram import Client, filters
+from pyrogram import Client, filters, errors
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database import usersdb  
-from info import *
 
 @Client.on_message(filters.command("start") & filters.private)
 async def strtCap(bot, message):
-    user_id = int(message.from_user.id)
-    bot_me = await bot.get_me()
+    user_id = message.from_user.id
     await insert(user_id)
+    bot_me = await bot.get_me()
     keyboard = InlineKeyboardMarkup(
         [
             [
@@ -117,16 +118,16 @@ async def user_settings(bot, message):
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
 
-    buttons = []
-    for ch in channels:
-        buttons.append(
-            [InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")]
-        )
+    buttons = [
+        [InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")]
+        for ch in channels
+    ]
 
     await message.reply_text(
         "📋 Your added channels:",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
+
 
 
 def extract_language(default_caption):
@@ -232,23 +233,27 @@ async def about(bot, query):
 @Client.on_chat_member_updated()
 async def on_bot_added(bot, update):
     try:
-        # Only run if the change is about the bot itself
-        if update.new_chat_member and update.new_chat_member.user.id == bot.me.id:
-            if update.new_chat_member.status == "administrator":
+        # Only handle when the bot itself is updated
+        new_status = update.new_chat_member
+        if new_status.user.id == (await bot.get_me()).id:
+            if new_status.status == "administrator":
                 channel_id = update.chat.id
                 channel_title = update.chat.title
 
-                # Save to DB
-                await usersdb.add_channel(update.from_user.id, channel_id, channel_title)
+                # Who promoted bot?
+                promoter = update.from_user.id if hasattr(update, "from_user") else None
 
-                # Send confirmation PM to user
-                try:
-                    await bot.send_message(
-                        chat_id=update.from_user.id,
-                        text=f"✅ Bot is now admin in **{channel_title}**."
-                    )
-                except Exception as e:
-                    print(f"Failed to send PM: {e}")
+                if promoter:
+                    # Save to DB
+                    await usersdb.add_user_channel(promoter, channel_id, channel_title)
+                    # Send confirmation PM
+                    try:
+                        await bot.send_message(
+                            chat_id=promoter,
+                            text=f"✅ Bot is now admin in **{channel_title}**."
+                        )
+                    except Exception as e:
+                        print(f"Failed to send PM: {e}")
 
     except Exception as e:
         print(f"on_chat_member_updated error: {e}")
