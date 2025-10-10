@@ -101,8 +101,7 @@ async def delCap(bot, message):
 async def user_settings(bot, message):
     user_id = message.from_user.id
     channels = await get_user_channels(user_id)
-    print(f"DEBUG: User {user_id} channels: {channels}")  # <- debug
-
+    
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
 
@@ -231,15 +230,15 @@ async def about(bot, query):
 @Client.on_chat_member_updated()
 async def on_bot_chat_member_update(bot, update):
     try:
-        # Ensure update is about our bot
         bot_id = (await bot.get_me()).id
+        # Only handle updates about our bot
         if update.new_chat_member.user.id != bot_id:
             return
 
         channel_id = update.chat.id
         channel_title = update.chat.title
 
-        # Case 1: Bot added or promoted
+        # Bot added or promoted
         if update.new_chat_member.status in ["administrator", "member"]:
             if update.from_user:
                 await add_channel(update.from_user.id, channel_id, channel_title)
@@ -251,12 +250,13 @@ async def on_bot_chat_member_update(bot, update):
                 except Exception as e:
                     print(f"Failed to send PM: {e}")
 
-        # Case 2: Bot removed or demoted
+        # Bot removed or demoted
         elif update.new_chat_member.status in ["left", "kicked"]:
-            # Remove channel from ALL users who had it
+            # Remove channel from all users
             async for user in users.find({"channels.channel_id": channel_id}):
-                updated_channels = [ch for ch in user["channels"] if ch["channel_id"] != channel_id]
+                updated_channels = [ch for ch in user.get("channels", []) if ch["channel_id"] != channel_id]
                 await users.update_one({"_id": user["_id"]}, {"$set": {"channels": updated_channels}})
+                # Notify user (optional)
                 try:
                     await bot.send_message(
                         chat_id=user["_id"],
@@ -267,3 +267,162 @@ async def on_bot_chat_member_update(bot, update):
 
     except Exception as e:
         print(f"on_chat_member_updated error: {e}")
+
+# ---------------- Channel Buttons -------------------------------------------------------
+@Client.on_callback_query(filters.regex(r'^chinfo_(\d+)$'))
+async def channel_settings(bot, query):
+    channel_id = int(query.matches[0].group(1))
+    
+    buttons = [
+        [InlineKeyboardButton("Set Caption", callback_data=f"setcap_{channel_id}")],
+        [InlineKeyboardButton("Set Words Remover", callback_data=f"setwords_{channel_id}")],
+        [InlineKeyboardButton("Set Suffix & Prefix", callback_data=f"setsuffix_{channel_id}")],
+        [InlineKeyboardButton("Set Replace Words", callback_data=f"setreplace_{channel_id}")],
+        [InlineKeyboardButton("Link Remover (On/Off)", callback_data=f"linkrem_{channel_id}")],
+        [InlineKeyboardButton("Remove Channel", callback_data=f"removechan_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data="back_channels"),
+         InlineKeyboardButton("❌ Close", callback_data="close_msg")]
+    ]
+    
+    await query.message.edit_text(
+        f"⚙️ Manage your channel: **{channel_id}**",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+@Client.on_callback_query(filters.regex(r'^back_channels$'))
+async def back_to_channels(bot, query):
+    user_id = query.from_user.id
+    channels = await get_user_channels(user_id)
+    
+    if not channels:
+        return await query.message.edit_text("You haven’t added me to any channels yet!")
+    
+    buttons = [[InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")] for ch in channels]
+    
+    await query.message.edit_text(
+        "📋 Your added channels:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+@Client.on_callback_query(filters.regex(r'^close_msg$'))
+async def close_message(bot, query):
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+@Client.on_callback_query(filters.regex(r'^removechan_(\d+)$'))
+async def remove_channel(bot, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    # Remove channel from user DB
+    user = await users.find_one({"_id": user_id})
+    if user:
+        updated_channels = [ch for ch in user.get("channels", []) if ch["channel_id"] != channel_id]
+        await users.update_one({"_id": user_id}, {"$set": {"channels": updated_channels}})
+
+    await query.message.edit_text(f"✅ Channel removed from your list.")
+
+
+# ---------------- Set Caption Menu ----------------
+@Client.on_callback_query(filters.regex(r'^setcap_(\d+)$'))
+async def set_caption_menu(bot, query):
+    channel_id = int(query.matches[0].group(1))
+
+    buttons = [
+        [InlineKeyboardButton("1️⃣ Set Caption", callback_data=f"setcapmsg_{channel_id}")],
+        [InlineKeyboardButton("2️⃣ Delete Caption", callback_data=f"delcap_{channel_id}")],
+        [InlineKeyboardButton("3️⃣ Caption Font", callback_data=f"capfont_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    await query.message.edit_text(
+        "✏️ Choose an action for this channel:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+# ---------------- Set Caption Message ----------------
+@Client.on_callback_query(filters.regex(r'^setcapmsg_(\d+)$'))
+async def set_caption_message(bot, query):
+    channel_id = int(query.matches[0].group(1))
+    
+    # Send instructions
+    msg = await bot.send_message(
+        chat_id=query.from_user.id,
+        text=("📌 Send me the caption for this channel.\n\n"
+              "You can use the following placeholders:\n"
+              "{file_name} - File name\n"
+              "{file_size} - File size\n"
+              "{default_caption} - Original caption\n"
+              "{language} - Language\n"
+              "{year} - Year")
+    )
+
+    # Store info in user session
+    if "caption_set" not in bot_data:
+        bot_data["caption_set"] = {}
+    bot_data["caption_set"][query.from_user.id] = {"channel_id": channel_id, "msg_id": msg.id}
+
+
+# ---------------- Set Caption -----------------------------------
+@Client.on_message(filters.private)
+async def capture_caption(bot, message):
+    user_id = message.from_user.id
+    
+    if "caption_set" in bot_data and user_id in bot_data["caption_set"]:
+        channel_id = bot_data["caption_set"][user_id]["channel_id"]
+        
+        # Save the caption to DB
+        caption_text = message.text
+        if await get_channel_caption(channel_id):
+            await updateCap(channel_id, caption_text)
+        else:
+            await addCap(channel_id, caption_text)
+
+        # Delete user's message
+        try:
+            await message.delete()
+        except:
+            pass
+
+        # Send confirmation with back button
+        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
+        await bot.send_message(
+            chat_id=user_id,
+            text="✅ Caption successfully updated.",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+
+        # Clear session
+        del bot_data["caption_set"][user_id]
+
+
+@Client.on_callback_query(filters.regex(r'^delcap_(\d+)$'))
+async def delete_caption(bot, query):
+    channel_id = int(query.matches[0].group(1))
+    await delete_channel_caption(channel_id)
+
+    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
+    await query.message.edit_text(
+        "✅ Caption deleted successfully. Now using default caption.",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+@Client.on_callback_query(filters.regex(r'^capfont_(\d+)$'))
+async def caption_font(bot, query):
+    from Script import FONT_TXT
+
+    channel_id = int(query.matches[0].group(1))
+    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
+
+    await query.message.edit_text(
+        f"🖋️ Available fonts:\n\n{FONT_TXT}",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+
+
