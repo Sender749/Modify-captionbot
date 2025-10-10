@@ -50,3 +50,34 @@ Eg:- `/set_cap
 ║┣⪼🗒️Vᴇʀsɪᴏɴ : 2.0.8 [ᴍᴏsᴛ sᴛᴀʙʟᴇ]
 ║╰━━━━━━━━━━━━━━━➣
 ╚══════════════════❍⊱❁</b>"""
+
+    FONT_TXT = """🔰 About Caption Font
+
+➢ Bold Text
+☞ <b>{file_name}</b>
+
+➢ Spoiler Text
+☞ <spoiler>{file_name}</spoiler>
+
+➢ Preformatted Text
+☞ <pre>{file_name}</pre>
+
+➢ Block Quote Text
+☞ <blockquote>{file_name}</blockquote>
+☞ <blockquote expandable>{file_name}</blockquote>
+
+➢ Italic Text
+☞ <i>{file_name}</i>
+
+➢ Underline Text
+☞ <u>{file_name}</u>
+
+➢ Strike Text
+☞ <s>{file_name}</s>
+
+➢ Mono Text
+☞ <code>{file_name}</code>
+
+➢ Hyperlink Text
+☞ <a href="https://t.me/Jisshu_bots">{file_name}</a>
+"""
