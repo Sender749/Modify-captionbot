@@ -31,3 +31,20 @@ async def getid():
 
 async def delete(id):
     await users.delete_one(id)
+
+user_channels = db.user_channels  # NEW COLLECTION
+
+async def add_user_channel(user_id, channel_id, channel_title):
+    """Add a channel for a user if not exists"""
+    existing = await user_channels.find_one({"user_id": user_id, "channel_id": channel_id})
+    if not existing:
+        await user_channels.insert_one({
+            "user_id": user_id,
+            "channel_id": channel_id,
+            "channel_title": channel_title
+        })
+
+async def get_user_channels(user_id):
+    """Return list of channels added by a user"""
+    cursor = user_channels.find({"user_id": user_id})
+    return [doc async for doc in cursor]
