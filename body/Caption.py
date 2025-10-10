@@ -1,7 +1,4 @@
-import asyncio
-import re
-import os
-import sys
+import asyncio, re, os, sys
 from pyrogram import *
 from info import *
 from Script import script
@@ -10,29 +7,28 @@ from pyrogram.errors import FloodWait
 from pyrogram.types import *
 from pyrogram import Client, filters, errors
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from .database import users  
+from .database import *
 
 @Client.on_message(filters.command("start") & filters.private)
 async def strtCap(bot, message):
-    user_id = message.from_user.id
-    await insert(user_id)
+    user_id = int(message.from_user.id)
+    await insert_user(user_id)
     bot_me = await bot.get_me()
     bot_username = bot_me.username
+
     keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("➕️ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ➕️", url=f"https://t.me/{bot_username}?startchannel=true")
-            ],[
-                InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"),
-                InlineKeyboardButton("Aʙᴏᴜᴛ", callback_data="about")
-            ],[
-                InlineKeyboardButton("🌐 Uᴘᴅᴀᴛᴇ", url=f"https://t.me/Silicon_Bot_Update"),
-                InlineKeyboardButton("📜 Sᴜᴘᴘᴏʀᴛ", url=r"https://t.me/Silicon_Botz")
-        ]]
+        [[InlineKeyboardButton(
+            "➕️ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ➕️", url=f"https://t.me/{bot_username}?startchannel=true"
+        )],
+         [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"),
+          InlineKeyboardButton("Aʙᴏᴜᴛ", callback_data="about")],
+         [InlineKeyboardButton("🌐 Uᴘᴅᴀᴛᴇ", url="https://t.me/Silicon_Bot_Update"),
+          InlineKeyboardButton("📜 Sᴜᴘᴘᴏʀᴛ", url="https://t.me/Silicon_Botz")]]
     )
+
     await message.reply_photo(
         photo=SILICON_PIC,
-        caption=f"<b>Hᴇʟʟᴏ {message.from_user.mention}\n\nɪ ᴀᴍ ᴀᴜᴛᴏ ᴄᴀᴘᴛɪᴏɴ ʙᴏᴛ ᴡɪᴛʜ ᴄᴜsᴛᴏᴍ ᴄᴀᴘᴛɪᴏɴ.\n\nFᴏʀ ᴍᴏʀᴇ ɪɴғᴏ ʜᴏᴡ ᴛᴏ ᴜsᴇ ᴍᴇ ᴄʟɪᴄᴋ ᴏɴ ʜᴇʟᴘ ʙᴜᴛᴛᴏɴ ɢɪᴠᴇɴ ʙᴇʟᴏᴡ.</b>",
+        caption=f"<b>Hᴇʟʟᴏ {message.from_user.mention}\n\nI am auto caption bot with custom caption.</b>",
         reply_markup=keyboard
     )
 
@@ -114,15 +110,12 @@ async def delCap(_, msg):
 @Client.on_message(filters.command("settings") & filters.private)
 async def user_settings(bot, message):
     user_id = message.from_user.id
-    channels = await users.get_user_channels(user_id)
+    channels = await get_user_channels(user_id)
 
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
 
-    buttons = [
-        [InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")]
-        for ch in channels
-    ]
+    buttons = [[InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")] for ch in channels]
 
     await message.reply_text(
         "📋 Your added channels:",
@@ -234,23 +227,17 @@ async def about(bot, query):
 @Client.on_chat_member_updated()
 async def on_bot_added(bot, update):
     try:
-        # Only handle when the bot itself is updated
-        new_status = update.new_chat_member
-        if new_status.user.id == (await bot.get_me()).id:
-            if new_status.status == "administrator":
+        if update.new_chat_member and update.new_chat_member.user.id == bot.me.id:
+            if update.new_chat_member.status == "administrator":
                 channel_id = update.chat.id
                 channel_title = update.chat.title
 
-                # Who promoted bot?
-                promoter = update.from_user.id if hasattr(update, "from_user") else None
-
-                if promoter:
-                    # Save to DB
-                    await users.add_user_channel(promoter, channel_id, channel_title)
-                    # Send confirmation PM
+                # Save channel to user who added bot
+                if update.from_user:
+                    await add_channel(update.from_user.id, channel_id, channel_title)
                     try:
                         await bot.send_message(
-                            chat_id=promoter,
+                            chat_id=update.from_user.id,
                             text=f"✅ Bot is now admin in **{channel_title}**."
                         )
                     except Exception as e:
