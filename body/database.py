@@ -24,6 +24,13 @@ async def get_all_users():
 async def delete_user(user_id):
     await users.delete_one({"_id": user_id})
 
+async def getid():
+    users_list = []
+    cursor = users.find({})
+    async for user in cursor:
+        users_list.append({"_id": user["_id"]})
+    return users_list
+
 # ---------------- Channel functions ----------------
 async def add_channel(user_id: int, channel_id: int, channel_title: str):
     """Add channel to user channels"""
