@@ -3,7 +3,7 @@ from pyrogram import Client, filters, errors
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram import enums
 from info import *
-from Script import script, FONT_TXT
+from Script import script
 from .database import *
 from body import bot_data
 
