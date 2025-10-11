@@ -24,6 +24,8 @@ async def channel_settings(client, query):
         [InlineKeyboardButton("📝 Set Caption", callback_data=f"setcap_{channel_id}")],
         [InlineKeyboardButton("🧹 Set Words Remover", callback_data=f"setwords_{channel_id}")],
         [InlineKeyboardButton("🔤 Set Prefix & Suffix", callback_data=f"set_suffixprefix_{channel_id}")],
+        [InlineKeyboardButton("🔄 Set Replace Words", callback_data=f"setreplace_{channel_id}")],
+        [InlineKeyboardButton(f"🔗 {link_text}", callback_data=f"togglelink_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data="back_channels"),
          InlineKeyboardButton("❌ Close", callback_data="close_msg")]
     ]
@@ -258,7 +260,6 @@ async def suffix_prefix_menu(client, query):
         pass
     await client.send_message(query.from_user.id, text, reply_markup=InlineKeyboardMarkup(buttons))
 
-
 @Client.on_callback_query(filters.regex(r'^set_suf_(-?\d+)$'))
 async def set_suffix_cb(client, query):
     channel_id = int(query.matches[0].group(1))
@@ -298,3 +299,74 @@ async def delete_prefix_cb(client, query):
     except Exception:
         pass
     await client.send_message(query.from_user.id, "✅ Prefix deleted.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
+
+# ======================== Replace Words ==================================
+@Client.on_callback_query(filters.regex(r'^setreplace_(-?\d+)$'))
+async def replace_words_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+    replace_words = await get_replace_words(channel_id)  
+
+    buttons = [
+        [InlineKeyboardButton("📝 Set Replace Words", callback_data=f"do_replace_{channel_id}")],
+        [InlineKeyboardButton("❌ Delete Replace Words", callback_data=f"del_replace_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    text = f"📢 **Channel:** {channel_id}\n\n"
+    text += "🔄 **Current Replace Words:**\n"
+    text += f"{replace_words if replace_words else 'None'}"
+
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_callback_query(filters.regex(r'^do_replace_(-?\d+)$'))
+async def set_replace_words_start(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    # Delete previous msg
+    try:
+        await query.message.delete()
+    except: pass
+
+    # Send instruction msg
+    msg = await client.send_message(user_id, 
+        "✏️ Send multiple replacement pairs in this format:\n"
+        "`old_word new_word, another_old another_new`\n"
+        "Use /cancel to cancel the process."
+    )
+
+    # Store user session
+    bot_data.setdefault("replace_words_set", {})[user_id] = {"channel_id": channel_id, "instr_msg_id": msg.id}
+
+@Client.on_callback_query(filters.regex(r'^del_replace_(-?\d+)$'))
+async def delete_replace_words(client, query):
+    channel_id = int(query.matches[0].group(1))
+
+    await delete_replace_words(channel_id)  # delete from DB
+
+    try: await query.message.delete()
+    except: pass
+
+    await client.send_message(query.from_user.id, f"✅ All replace words deleted for channel {channel_id}.",
+                              reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"setreplace_{channel_id}")]]))
+
+# ======================== Link Remover ==================================
+@Client.on_callback_query(filters.regex(r'^togglelink_(-?\d+)$'))
+async def toggle_link_remover(client, query):
+    channel_id = int(query.matches[0].group(1))
+
+    # Toggle in DB
+    current_status = await get_link_remover_status(channel_id)
+    new_status = not current_status
+    await set_link_remover_status(channel_id, new_status)
+
+    # Update button text
+    link_text = "Link Remover (ON)" if new_status else "Link Remover (OFF)"
+    buttons = [
+        [InlineKeyboardButton(f"🔗 {link_text}", callback_data=f"togglelink_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    await query.message.edit_text(f"🔗 Link Remover is now {'enabled' if new_status else 'disabled'}.", 
+                                  reply_markup=InlineKeyboardMarkup(buttons))
