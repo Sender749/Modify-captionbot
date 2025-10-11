@@ -9,7 +9,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram import enums
 
 from info import *
-from Script import script, FONT_TXT
+from Script import *
 from .database import (
     insert_user,
     total_user,
