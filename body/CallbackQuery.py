@@ -3,7 +3,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from body.database import *
 from info import *
 from Script import script, FONT_TXT
-from body import bot_data  
+from body.Caption import bot_data 
 
 @Client.on_callback_query(filters.regex(r'^chinfo_(-?\d+)$'))
 async def channel_settings(client, query):
