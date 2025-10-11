@@ -97,7 +97,9 @@ async def set_prefix(channel_id: int, prefix: str):
 async def get_suffix_prefix(channel_id: int):
     """Get suffix & prefix for a channel"""
     data = await chnl_ids.find_one({"chnl_id": channel_id})
-    return data.get("suffix", ""), data.get("prefix", "") if data else ("", "")
+    if data:
+        return data.get("suffix", ""), data.get("prefix", "")
+    return "", ""
 
 async def delete_suffix(channel_id: int):
     await chnl_ids.update_one({"chnl_id": channel_id}, {"$unset": {"suffix": ""}})
