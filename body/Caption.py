@@ -4,7 +4,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram import enums
 from info import *
 from Script import script
-from .database import *
+from body.database import *
 from body import bot_data
 
 bot_data = {}
@@ -332,3 +332,56 @@ async def capture_caption(client, message):
     except Exception:
         bot_data["caption_set"].pop(user_id, None)
 
+from body.database import set_block_words
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from body import bot_data
+
+@Client.on_message(filters.private)
+async def capture_block_words(client, message):
+    user_id = message.from_user.id
+
+    # Only handle if user is in block word set mode
+    if "block_words_set" not in bot_data or user_id not in bot_data["block_words_set"]:
+        return
+
+    session = bot_data["block_words_set"][user_id]
+    channel_id = session["channel_id"]
+    instr_msg_id = session.get("instr_msg_id")
+
+    # Cancel command
+    if message.text and message.text.strip().lower() == "/cancel":
+        if instr_msg_id:
+            try:
+                await client.delete_messages(user_id, instr_msg_id)
+            except Exception:
+                pass
+        await message.reply_text(
+            "❌ Process canceled.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"setwords_{channel_id}")]])
+        )
+        bot_data["block_words_set"].pop(user_id, None)
+        return
+
+    # Get text message
+    text = message.text.strip() if message.text else ""
+    if not text:
+        await message.reply_text("Please send valid text.")
+        return
+
+    # Split and clean words
+    words = [w.strip().lower() for w in text.split(",") if w.strip()]
+
+    try:
+        await set_block_words(channel_id, words)
+    except Exception as e:
+        print("Error saving blocked words:", e)
+
+    try:
+        await client.delete_messages(user_id, [message.id, instr_msg_id])
+    except Exception:
+        pass
+
+    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setwords_{channel_id}")]]
+    await client.send_message(user_id, "✅ Blocked words updated successfully.", reply_markup=InlineKeyboardMarkup(buttons))
+
+    bot_data["block_words_set"].pop(user_id, None)
