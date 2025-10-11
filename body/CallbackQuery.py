@@ -2,9 +2,10 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from body.database import *
 from info import *
-from Script import script, FONT_TXT
+from Script import script
 from body.Caption import bot_data
 
+FONT_TXT = script.FONT_TXT
 
 # ================= Helper =================
 def _is_admin_member(member):
