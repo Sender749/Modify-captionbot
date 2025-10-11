@@ -384,3 +384,53 @@ async def capture_block_words(client, message):
     await client.send_message(user_id, "✅ Blocked words updated successfully.", reply_markup=InlineKeyboardMarkup(buttons))
 
     bot_data["block_words_set"].pop(user_id, None)
+
+@Client.on_message(filters.private)
+async def capture_suffix_prefix(client, message):
+    user_id = message.from_user.id
+
+    # --- Suffix ---
+    if "suffix_set" in bot_data and user_id in bot_data["suffix_set"]:
+        session = bot_data["suffix_set"][user_id]
+        channel_id = session["channel_id"]
+        instr_msg_id = session.get("instr_msg_id")
+
+        if message.text and message.text.strip().lower() == "/cancel":
+            await client.send_message(user_id, "❌ Process canceled.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
+            bot_data["suffix_set"].pop(user_id, None)
+            if instr_msg_id:
+                await client.delete_messages(user_id, instr_msg_id)
+            return
+
+        suffix_text = message.text.strip()
+        await set_suffix(channel_id, suffix_text)
+        try:
+            await client.delete_messages(user_id, [message.id, instr_msg_id])
+        except Exception:
+            pass
+        await client.send_message(user_id, "✅ Suffix set successfully.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
+        bot_data["suffix_set"].pop(user_id, None)
+        return
+
+    if "prefix_set" in bot_data and user_id in bot_data["prefix_set"]:
+        session = bot_data["prefix_set"][user_id]
+        channel_id = session["channel_id"]
+        instr_msg_id = session.get("instr_msg_id")
+
+        if message.text and message.text.strip().lower() == "/cancel":
+            await client.send_message(user_id, "❌ Process canceled.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
+            bot_data["prefix_set"].pop(user_id, None)
+            if instr_msg_id:
+                await client.delete_messages(user_id, instr_msg_id)
+            return
+
+        prefix_text = message.text.strip()
+        await set_prefix(channel_id, prefix_text)
+        try:
+            await client.delete_messages(user_id, [message.id, instr_msg_id])
+        except Exception:
+            pass
+        await client.send_message(user_id, "✅ Prefix set successfully.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
+        bot_data["prefix_set"].pop(user_id, None)
+        return
+
