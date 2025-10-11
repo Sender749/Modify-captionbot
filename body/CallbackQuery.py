@@ -232,3 +232,68 @@ async def delete_blocked_words(client, query):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from body.database import set_suffix, set_prefix, get_suffix_prefix, delete_suffix, delete_prefix
+from body.Caption import bot_data
+
+# ======================== Suffix & Prefix Menu ==================================
+@Client.on_callback_query(filters.regex(r'^set_suffixprefix_(-?\d+)$'))
+async def suffix_prefix_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    suffix, prefix = await get_suffix_prefix(channel_id)
+
+    buttons = [
+        [InlineKeyboardButton("Set Suffix", callback_data=f"set_suf_{channel_id}"),
+         InlineKeyboardButton("Del Suffix", callback_data=f"del_suf_{channel_id}")],
+        [InlineKeyboardButton("Set Prefix", callback_data=f"set_pre_{channel_id}"),
+         InlineKeyboardButton("Del Prefix", callback_data=f"del_pre_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    text = f"📌 Channel: {channel_id}\n\nCurrent Suffix: {suffix or 'None'}\nCurrent Prefix: {prefix or 'None'}"
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    await client.send_message(query.from_user.id, text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+@Client.on_callback_query(filters.regex(r'^set_suf_(-?\d+)$'))
+async def set_suffix_cb(client, query):
+    channel_id = int(query.matches[0].group(1))
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    instr = await client.send_message(query.from_user.id, "Send suffix you want to set.\nUse /cancel to cancel this process.")
+    bot_data.setdefault("suffix_set", {})[query.from_user.id] = {"channel_id": channel_id, "instr_msg_id": instr.id}
+
+@Client.on_callback_query(filters.regex(r'^set_pre_(-?\d+)$'))
+async def set_prefix_cb(client, query):
+    channel_id = int(query.matches[0].group(1))
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    instr = await client.send_message(query.from_user.id, "Send prefix you want to set.\nUse /cancel to cancel this process.")
+    bot_data.setdefault("prefix_set", {})[query.from_user.id] = {"channel_id": channel_id, "instr_msg_id": instr.id}
+
+@Client.on_callback_query(filters.regex(r'^del_suf_(-?\d+)$'))
+async def delete_suffix_cb(client, query):
+    channel_id = int(query.matches[0].group(1))
+    await delete_suffix(channel_id)
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    await client.send_message(query.from_user.id, "✅ Suffix deleted.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
+
+@Client.on_callback_query(filters.regex(r'^del_pre_(-?\d+)$'))
+async def delete_prefix_cb(client, query):
+    channel_id = int(query.matches[0].group(1))
+    await delete_prefix(channel_id)
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    await client.send_message(query.from_user.id, "✅ Prefix deleted.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
