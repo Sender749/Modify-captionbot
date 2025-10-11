@@ -542,21 +542,49 @@ async def capture_caption(client, message):
     except Exception:
         bot_data["caption_set"].pop(user_id, None)
 
-
 @Client.on_callback_query(filters.regex(r'^delcap_(-?\d+)$'))
 async def delete_caption(client, query):
     channel_id = int(query.matches[0].group(1))
+    
+    try:
+        ch = await client.get_chat(channel_id)
+        ch_title = ch.title
+    except Exception:
+        ch_title = "Unknown Channel"
+
     try:
         await delete_channel_caption(channel_id)
     except Exception:
         pass
 
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
-    await query.message.edit_text("✅ Caption deleted successfully. Now using default caption.", reply_markup=InlineKeyboardMarkup(buttons))
+    text = f"📢 **Channel:** {ch_title}\n\n✅ Caption deleted successfully.\nNow using default caption."
+    try:
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 @Client.on_callback_query(filters.regex(r'^capfont_(-?\d+)$'))
 async def caption_font(client, query):
     channel_id = int(query.matches[0].group(1))
+    
+    try:
+        ch = await client.get_chat(channel_id)
+        ch_title = ch.title
+    except Exception:
+        ch_title = "Unknown Channel"
+
+    current_cap = await get_channel_caption(channel_id)
+    cap_txt = current_cap["caption"] if current_cap else "No custom caption set."
+
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
-    await query.message.edit_text(f"🖋️ Available fonts:\n\n{FONT_TXT}", reply_markup=InlineKeyboardMarkup(buttons))
+    text = (
+        f"📢 **Channel:** {ch_title}\n"
+        f"📝 **Current Caption:** {cap_txt}\n\n"
+        f"🖋️ **Available Fonts:**\n\n{FONT_TXT}"
+    )
+    try:
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
