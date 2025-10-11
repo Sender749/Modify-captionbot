@@ -5,7 +5,6 @@ from pyrogram import enums
 from info import *
 from Script import script
 from body.database import *
-from body import bot_data
 
 bot_data = {}
 
