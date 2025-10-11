@@ -1,13 +1,7 @@
-# body/Caption.py
-import asyncio
-import re
-import os
-import sys
-
+import asyncio, re, os, sys
 from pyrogram import Client, filters, errors
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram import enums
-
 from info import *
 from Script import *
 from .database import *
@@ -415,12 +409,8 @@ async def close_message(client, query):
 
 @Client.on_callback_query(filters.regex(r'^setcap_(-?\d+)$'))
 async def set_caption_menu(client, query):
-    """
-    Show submenu for caption (Set Caption, Delete Caption, Font, Back)
-    """
     channel_id = int(query.matches[0].group(1))
 
-    # verify channel accessible (remove if not)
     try:
         chat = await client.get_chat(channel_id)
         member = await client.get_chat_member(channel_id, "me")
@@ -431,14 +421,26 @@ async def set_caption_menu(client, query):
         await users.update_one({"_id": query.from_user.id}, {"$pull": {"channels": {"channel_id": channel_id}}})
         return await query.message.edit_text("⚠️ Unable to access this channel. It was removed from your list.")
 
+    # get current caption (if any)
+    caption_data = await get_channel_caption(channel_id)
+    current_caption = caption_data["caption"] if caption_data else None
+    caption_display = f"📝 **Current Caption:**\n{current_caption}" if current_caption else "📝 **Current Caption:** None set yet."
+
+    # Buttons for caption management
     buttons = [
-        [InlineKeyboardButton("1️⃣ Set Caption", callback_data=f"setcapmsg_{channel_id}")],
-        [InlineKeyboardButton("2️⃣ Delete Caption", callback_data=f"delcap_{channel_id}")],
-        [InlineKeyboardButton("3️⃣ Caption Font", callback_data=f"capfont_{channel_id}")],
+        [InlineKeyboardButton("🆕 Set Caption", callback_data=f"setcapmsg_{channel_id}")],
+        [InlineKeyboardButton("❌ Delete Caption", callback_data=f"delcap_{channel_id}")],
+        [InlineKeyboardButton("🔤 Caption Font", callback_data=f"capfont_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
     ]
 
-    await query.message.edit_text("✏️ Choose an action for this channel:", reply_markup=InlineKeyboardMarkup(buttons))
+    text = (
+        f"⚙️ **Channel:** {chat.title}\n"
+        f"{caption_display}\n\n"
+        f"Choose what you want to do 👇"
+    )
+
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 @Client.on_callback_query(filters.regex(r'^setcapmsg_(-?\d+)$'))
