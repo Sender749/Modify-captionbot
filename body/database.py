@@ -77,3 +77,32 @@ async def delete_block_words(chnl_id: int):
     """Delete all blocked words for a channel"""
     await chnl_ids.update_one({"chnl_id": chnl_id}, {"$unset": {"block_words": ""}})
 
+# ---------------- Suffix & Prefix functions ----------------
+async def set_suffix(channel_id: int, suffix: str):
+    """Set suffix for a channel"""
+    await chnl_ids.update_one(
+        {"chnl_id": channel_id},
+        {"$set": {"suffix": suffix}},
+        upsert=True
+    )
+
+async def set_prefix(channel_id: int, prefix: str):
+    """Set prefix for a channel"""
+    await chnl_ids.update_one(
+        {"chnl_id": channel_id},
+        {"$set": {"prefix": prefix}},
+        upsert=True
+    )
+
+async def get_suffix_prefix(channel_id: int):
+    """Get suffix & prefix for a channel"""
+    data = await chnl_ids.find_one({"chnl_id": channel_id})
+    return data.get("suffix", ""), data.get("prefix", "") if data else ("", "")
+
+async def delete_suffix(channel_id: int):
+    await chnl_ids.update_one({"chnl_id": channel_id}, {"$unset": {"suffix": ""}})
+
+async def delete_prefix(channel_id: int):
+    await chnl_ids.update_one({"chnl_id": channel_id}, {"$unset": {"prefix": ""}})
+
+
