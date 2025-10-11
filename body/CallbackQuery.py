@@ -26,6 +26,7 @@ async def channel_settings(client, query):
         [InlineKeyboardButton("🔤 Set Prefix & Suffix", callback_data=f"set_suffixprefix_{channel_id}")],
         [InlineKeyboardButton("🔄 Set Replace Words", callback_data=f"setreplace_{channel_id}")],
         [InlineKeyboardButton(f"🔗 {link_text}", callback_data=f"togglelink_{channel_id}")],
+        [InlineKeyboardButton("❌ Remove Channel", callback_data=f"removech_{channel_id}")],  
         [InlineKeyboardButton("↩ Back", callback_data="back_channels"),
          InlineKeyboardButton("❌ Close", callback_data="close_msg")]
     ]
@@ -370,3 +371,23 @@ async def toggle_link_remover(client, query):
 
     await query.message.edit_text(f"🔗 Link Remover is now {'enabled' if new_status else 'disabled'}.", 
                                   reply_markup=InlineKeyboardMarkup(buttons))
+
+# ======================== Channel Remove ==================================
+@Client.on_callback_query(filters.regex(r'^removech_(-?\d+)$'))
+async def remove_channel_cb(client, query):
+    user_id = query.from_user.id
+    channel_id = int(query.matches[0].group(1))
+
+    # Remove channel from DB
+    await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": channel_id}}})
+
+    # Delete previous message
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    # Send confirmation with Settings button
+    buttons = [[InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")]]
+    await client.send_message(user_id, "✅ Channel removed successfully.", reply_markup=InlineKeyboardMarkup(buttons))
+
