@@ -331,10 +331,6 @@ async def capture_caption(client, message):
     except Exception:
         bot_data["caption_set"].pop(user_id, None)
 
-from body.database import set_block_words
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from body import bot_data
-
 @Client.on_message(filters.private)
 async def capture_block_words(client, message):
     user_id = message.from_user.id
