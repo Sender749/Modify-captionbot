@@ -3,7 +3,7 @@ from pyrogram import Client, filters, errors
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram import enums
 from info import *
-from Script import *
+from Script import script
 from .database import *
 
 bot_data = {
@@ -383,35 +383,42 @@ async def set_caption_message(client, query):
     user_id = query.from_user.id
 
     try:
-        instr = await client.send_message(
-            chat_id=user_id,
-            text=(
-                "📌 Send me the caption for this channel.\n\n"
-                "You can use these placeholders:\n"
-                "{file_name} - File name\n"
-                "{file_size} - File size\n"
-                "{default_caption} - Original caption\n"
-                "{language} - Language\n"
-                "{year} - Year\n\n"
-                "When you send the caption text I will save it and delete your message."
-            ),
-        )
-    except Exception as e:
-        return await query.answer("❌ Unable to send you a private message. Make sure you started the bot.", show_alert=True)
-
-    bot_data.setdefault("caption_set", {})[user_id] = {"channel_id": channel_id, "instr_msg_id": instr.id}
-
-    try:
-        await query.answer("📨 Check your private messages — send the caption there.", show_alert=False)
+        await query.message.delete()
     except Exception:
         pass
 
+    instr = await client.send_message(
+        chat_id=user_id,
+        text=(
+            "📌 Send me the caption for this channel.\n\n"
+            "You can use these placeholders:\n"
+            "{file_name} - File name\n"
+            "{file_size} - File size\n"
+            "{default_caption} - Original caption\n"
+            "{language} - Language\n"
+            "{year} - Year\n\n"
+            "When you send the caption text, I will save it and delete your message."
+        ),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
+        )
+    )
+
+    bot_data.setdefault("caption_set", {})[user_id] = {
+        "channel_id": channel_id,
+        "instr_msg_id": instr.id
+    }
+
+@Client.on_callback_query(filters.regex(r'^back_to_captionmenu_(-?\d+)$'))
+async def back_to_caption_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    await set_caption_menu(client, query) 
 
 @Client.on_message(filters.private)
 async def capture_caption(client, message):
     user_id = message.from_user.id
     if "caption_set" not in bot_data or user_id not in bot_data["caption_set"]:
-        return  # not in a caption set flow
+        return  
 
     session = bot_data["caption_set"][user_id]
     channel_id = session["channel_id"]
@@ -424,7 +431,7 @@ async def capture_caption(client, message):
             await message.delete()
         except Exception:
             pass
-        await client.send_message(user_id, "Please send the caption text (plain text).")
+        await client.send_message(user_id, "❌ Please send valid caption text (plain text only).")
         return
 
     try:
@@ -434,7 +441,7 @@ async def capture_caption(client, message):
         else:
             await addCap(channel_id, caption_text)
     except Exception as e:
-        print("Err saving caption:", e)
+        print("Error saving caption:", e)
 
     try:
         await message.delete()
@@ -446,12 +453,16 @@ async def capture_caption(client, message):
             await client.delete_messages(chat_id=user_id, message_ids=instr_msg_id)
         except Exception:
             pass
-
-    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
+            
+    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
     try:
-        await client.send_message(user_id, "✅ Caption successfully updated.", reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        pass
+        await client.send_message(
+            user_id,
+            "✅ Caption successfully updated!",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+    except Exception as e:
+        print("Error sending confirmation message:", e)
 
     try:
         del bot_data["caption_set"][user_id]
