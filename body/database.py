@@ -58,3 +58,22 @@ async def get_channel_caption(chnl_id: int):
 
 async def delete_channel_caption(chnl_id: int):
     await chnl_ids.delete_one({"chnl_id": chnl_id})
+
+# ---------------- Blocked Words functions ----------------
+async def set_block_words(chnl_id: int, words: list):
+    """Add or update blocked words for a channel"""
+    await chnl_ids.update_one(
+        {"chnl_id": chnl_id},
+        {"$set": {"block_words": words}},
+        upsert=True
+    )
+
+async def get_block_words(chnl_id: int):
+    """Fetch blocked words list for a channel"""
+    doc = await chnl_ids.find_one({"chnl_id": chnl_id})
+    return doc.get("block_words", []) if doc else []
+
+async def delete_block_words(chnl_id: int):
+    """Delete all blocked words for a channel"""
+    await chnl_ids.update_one({"chnl_id": chnl_id}, {"$unset": {"block_words": ""}})
+
