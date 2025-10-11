@@ -10,19 +10,7 @@ from pyrogram import enums
 
 from info import *
 from Script import *
-from .database import (
-    insert_user,
-    total_user,
-    getid,
-    delete_user,
-    add_channel,
-    get_user_channels,
-    addCap,
-    updateCap,
-    get_channel_caption,
-    delete_channel_caption,
-    users,  # motor collection, used for $pull updates
-)
+from .database import *
 
 # session storage for conversational flows (set caption)
 bot_data = {
