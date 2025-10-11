@@ -38,14 +38,9 @@ async def strtCap(client, message):
 
     keyboard = InlineKeyboardMarkup(
         [
-            [
-                InlineKeyboardButton(
-                    "➕️ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ➕️",
-                    url=f"https://t.me/{bot_username}?startchannel=true",
-                )
-            ],
+            [InlineKeyboardButton("➕️ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
             [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"),
-             InlineKeyboardButton("Aʙᴏᴜᴛ", callback_data="about")],
+             [InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
             [InlineKeyboardButton("🌐 Uᴘᴅᴀᴛᴇ", url="https://t.me/Silicon_Bot_Update"),
              InlineKeyboardButton("📜 Sᴜᴘᴘᴏʀᴛ", url="https://t.me/Silicon_Botz")],
         ]
@@ -221,7 +216,7 @@ async def start_cb(client, query):
         keyboard = InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton("➕️ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
-                [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("Aʙᴏᴜᴛ", callback_data="about")],
+                [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
                 [InlineKeyboardButton("🌐 Uᴘᴅᴀᴛᴇ", url="https://t.me/Silicon_Bot_Update"),
                  InlineKeyboardButton("📜 Sᴜᴘᴘᴏʀᴛ", url="https://t.me/Silicon_Botz")],
             ]
@@ -235,10 +230,14 @@ async def start_cb(client, query):
 async def help_cb(client, query):
     await query.message.edit_text(text=script.HELP_TXT, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('About', callback_data='about')], [InlineKeyboardButton('↩ ʙᴀᴄᴋ', callback_data='start')]]), disable_web_page_preview=True)
 
-
 @Client.on_callback_query(filters.regex(r'^about'))
 async def about_cb(client, query):
     await query.message.edit_text(text=script.ABOUT_TXT, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('ʜᴏᴡ ᴛᴏ ᴜsᴇ ᴍᴇ ❓', callback_data='help')], [InlineKeyboardButton('↩ ʙᴀᴄᴋ', callback_data='start')]]), disable_web_page_preview=True)
+
+@Client.on_callback_query(filters.regex(r'^settings_cb$'))
+async def settings_cb(client, query):
+    await user_settings(client, query.message)  
+
 
 @Client.on_chat_member_updated()
 async def on_bot_chat_member_update(client, update):
