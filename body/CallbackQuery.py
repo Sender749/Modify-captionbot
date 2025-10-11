@@ -22,6 +22,7 @@ async def channel_settings(client, query):
 
     buttons = [
         [InlineKeyboardButton("📝 Set Caption", callback_data=f"setcap_{channel_id}")],
+        [InlineKeyboardButton("🧹 Set Words Remover", callback_data=f"setwords_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data="back_channels"),
          InlineKeyboardButton("❌ Close", callback_data="close_msg")]
     ]
