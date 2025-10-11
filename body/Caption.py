@@ -167,6 +167,17 @@ def extract_year(default_caption):
     match = re.search(r'\b(19\d{2}|20\d{2})\b', default_caption or "")
     return match.group(1) if match else None
 
+def remove_links_and_mentions(text: str, remove_on: bool = False) -> str:
+    if not remove_on:
+        return text
+
+    text = re.sub(r'https?://t\.me/\S+', '', text)
+    text = re.sub(r'@\w+', '', text)
+    text = re.sub(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+)\)', r'\1', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 
 @Client.on_message(filters.channel)
 async def reCap(client, message):
@@ -186,12 +197,14 @@ async def reCap(client, message):
 
             cap_dets = await get_channel_caption(chnl_id)
             cap = cap_dets["caption"] if cap_dets else DEF_CAP
+            link_remover_on = await get_link_remover_status(chnl_id)
 
             try:
                 new_caption = cap.format(
                     file_name=file_name, file_size=file_size,
                     default_caption=default_caption, language=language, year=year
                 )
+                new_caption = remove_links_and_mentions(new_caption, link_remover_on)
                 await message.edit_caption(new_caption)
             except errors.FloodWait as e:
                 await asyncio.sleep(e.value)
@@ -430,3 +443,35 @@ async def capture_suffix_prefix(client, message):
         bot_data["prefix_set"].pop(user_id, None)
         return
 
+@Client.on_message(filters.private)
+async def capture_replace_words(client, message):
+    user_id = message.from_user.id
+    if user_id not in bot_data.get("replace_words_set", {}):
+        return
+
+    session = bot_data["replace_words_set"][user_id]
+    channel_id = session["channel_id"]
+    instr_msg_id = session.get("instr_msg_id")
+
+    if message.text.strip() == "/cancel":
+        try: 
+            await message.delete()
+            if instr_msg_id: await client.delete_messages(user_id, instr_msg_id)
+        except: pass
+        await client.send_message(user_id, "❌ Replace words process cancelled.", 
+                                  reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"setreplace_{channel_id}")]]))
+        bot_data["replace_words_set"].pop(user_id, None)
+        return
+
+    text = message.text.strip()
+    # Save to DB
+    await set_replace_words(channel_id, text)
+
+    try: 
+        await message.delete()
+        if instr_msg_id: await client.delete_messages(user_id, instr_msg_id)
+    except: pass
+
+    await client.send_message(user_id, f"✅ Replace words set successfully for channel {channel_id}.",
+                              reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"setreplace_{channel_id}")]]))
+    bot_data["replace_words_set"].pop(user_id, None)
