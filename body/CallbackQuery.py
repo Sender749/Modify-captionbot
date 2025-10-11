@@ -188,3 +188,46 @@ async def caption_font(client, query):
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
     except Exception:
         await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+# ========== SET WORDS REMOVER MENU ==========================================
+@Client.on_callback_query(filters.regex(r"^setwords_(-?\d+)$"))
+async def set_words_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    blocked_words = await get_block_words(channel_id)
+    words_text = ", ".join(blocked_words) if blocked_words else "No blocked words set."
+
+    buttons = [
+        [InlineKeyboardButton("📝 Set Block Words", callback_data=f"addwords_{channel_id}")],
+        [InlineKeyboardButton("🗑️ Delete Block Words", callback_data=f"delwords_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    await query.message.edit_text(
+        f"📛 **Channel:** `{channel_id}`\n\n🚫 **Blocked Words:**\n{words_text}",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+@Client.on_callback_query(filters.regex(r"^addwords_(-?\d+)$"))
+async def add_block_words(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    bot_data.setdefault("block_words_set", {})[user_id] = {"channel_id": channel_id}
+    msg = await query.message.edit_text(
+        "✏️ Send the words you want to block (use comma to separate words).\n"
+        "Use /cancel to cancel this process."
+    )
+    bot_data["block_words_set"][user_id]["instr_msg_id"] = msg.id
+
+@Client.on_callback_query(filters.regex(r"^delwords_(-?\d+)$"))
+async def delete_blocked_words(client, query):
+    channel_id = int(query.matches[0].group(1))
+    await delete_block_words(channel_id)
+
+    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setwords_{channel_id}")]]
+    await query.message.edit_text(
+        "✅ All blocked words deleted successfully.",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
