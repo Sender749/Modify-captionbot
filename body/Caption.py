@@ -37,14 +37,13 @@ async def strtCap(client, message):
     bot_username = bot_me.username or BOT_USERNAME if "BOT_USERNAME" in globals() else (bot_me.username or "Bot")
 
     keyboard = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("➕️ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
-            [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"),
-             [InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
-            [InlineKeyboardButton("🌐 Uᴘᴅᴀᴛᴇ", url="https://t.me/Silicon_Bot_Update"),
-             InlineKeyboardButton("📜 Sᴜᴘᴘᴏʀᴛ", url="https://t.me/Silicon_Botz")],
-        ]
-    )
+            [
+                [InlineKeyboardButton("➕️ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
+                [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
+                [InlineKeyboardButton("🌐 Uᴘᴅᴀᴛᴇ", url="https://t.me/Silicon_Bot_Update"),
+                 InlineKeyboardButton("📜 Sᴜᴘᴘᴏʀᴛ", url="https://t.me/Silicon_Botz")],
+            ]
+        )
 
     await message.reply_photo(
         photo=SILICON_PIC,
