@@ -4,6 +4,8 @@ from body.database import *
 from info import *
 from Script import script
 from body.Caption import bot_data 
+from pyrogram.errors import RPCError, ChatAdminRequired, ChatWriteForbidden
+
 
 FONT_TXT = script.FONT_TXT
 
@@ -22,6 +24,10 @@ async def safe_delete(msg):
     except:
         pass
 
+def _is_admin_member(member):
+    return member.status in ("administrator", "creator")
+
+
 @Client.on_callback_query(filters.regex(r'^chinfo_(-?\d+)$'))
 async def channel_settings(client, query):
     user_id = query.from_user.id
@@ -34,22 +40,19 @@ async def channel_settings(client, query):
             await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": channel_id}}})
             return await query.message.edit_text(f"⚠️ I am not admin in this channel anymore. Removed from your list.")
         
-        # Try to fetch chat title safely
         try:
             chat = await client.get_chat(channel_id)
             chat_title = getattr(chat, "title", str(channel_id))
-        except errors.RPCError:
+        except RPCError:
             chat_title = str(channel_id)
 
-    except errors.ChatAdminRequired:
+    except ChatAdminRequired:
         return await query.message.edit_text(f"⚠️ I need admin rights to access this channel: {channel_id}")
-    except errors.ChatWriteForbidden:
+    except ChatWriteForbidden:
         return await query.message.edit_text(f"⚠️ Cannot write to this channel: {channel_id}")
     except Exception:
-        # Skip removal for temporary API issues
         chat_title = str(channel_id)
 
-    # Continue normal channel settings flow
     link_status = await get_link_remover_status(channel_id)
     link_text = "Link Remover (ON)" if link_status else "Link Remover (OFF)"
 
