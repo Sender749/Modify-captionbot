@@ -217,25 +217,39 @@ async def suffix_prefix_menu(client, query):
     await client.send_message(query.from_user.id, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex(r'^set_suf_(-?\d+)$'))
-async def set_suffix_cb(client, query):
+async def set_suffix_message(client, query):
     channel_id = int(query.matches[0].group(1))
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-    instr = await client.send_message(query.from_user.id, "Send suffix you want to set.\nUse /cancel to cancel this process.")
-    bot_data.setdefault("suffix_set", {})[query.from_user.id] = {"channel_id": channel_id, "instr_msg_id": instr.id}
+    user_id = query.from_user.id
+    await safe_delete(query.message)
 
+    instr = await client.send_message(
+        chat_id=user_id,
+        text="🖋️ Send the suffix text you want to add to your captions.\n\nUse /cancel to abort.",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
+        )
+    )
+    bot_data.setdefault("suffix_set", {})[user_id] = {
+        "channel_id": channel_id,
+        "instr_msg_id": instr.id
+    }
 @Client.on_callback_query(filters.regex(r'^set_pre_(-?\d+)$'))
-async def set_prefix_cb(client, query):
+async def set_prefix_message(client, query):
     channel_id = int(query.matches[0].group(1))
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-    instr = await client.send_message(query.from_user.id, "Send prefix you want to set.\nUse /cancel to cancel this process.")
-    bot_data.setdefault("prefix_set", {})[query.from_user.id] = {"channel_id": channel_id, "instr_msg_id": instr.id}
+    user_id = query.from_user.id
+    await safe_delete(query.message)
 
+    instr = await client.send_message(
+        chat_id=user_id,
+        text="✍️ Send the prefix text you want to add to your captions.\n\nUse /cancel to abort.",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
+        )
+    )
+    bot_data.setdefault("prefix_set", {})[user_id] = {
+        "channel_id": channel_id,
+        "instr_msg_id": instr.id
+    }
 @Client.on_callback_query(filters.regex(r'^del_suf_(-?\d+)$'))
 async def delete_suffix_cb(client, query):
     channel_id = int(query.matches[0].group(1))
