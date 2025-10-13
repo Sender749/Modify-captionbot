@@ -93,6 +93,36 @@ async def start_cmd(client, message):
         reply_markup=keyboard,
     )
 
+    # ---------------- Detect startchannel ----------------
+    if message.text and "startchannel" in message.text.lower():
+        # fetch all chats where bot is admin
+        dialogs = await client.get_dialogs()
+        added_channels = 0
+        for dialog in dialogs:
+            chat = dialog.chat
+            try:
+                member = await client.get_chat_member(chat.id, "me")
+                if getattr(chat, "type", "") in ("channel",) and _is_admin_member(member):
+                    await add_user_channel(user_id, chat.id, chat.title or "Unnamed Channel")
+                    # Ensure channel settings exist
+                    existing_settings = await get_channel_caption(chat.id)
+                    if not existing_settings:
+                        await addCap(chat.id, DEF_CAP)
+                        await set_block_words(chat.id, [])
+                        await set_prefix(chat.id, "")
+                        await set_suffix(chat.id, "")
+                        await set_replace_words(chat.id, "")
+                        await set_link_remover_status(chat.id, False)
+                    added_channels += 1
+            except Exception:
+                continue
+        if added_channels:
+            await client.send_message(
+                user_id,
+                f"✅ Successfully registered {added_channels} channel(s) where I'm admin!\n"
+                "Previous settings restored if any."
+            )
+
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command(["total_users"]))
 async def all_db_users_here(client, message):
@@ -298,9 +328,15 @@ def _status_name(member_obj):
 
 
 def _is_admin_member(member_obj) -> bool:
-    name = _status_name(member_obj)
-    return ("administrator" in name) or ("creator" in name) or ("owner" in name)
-
+    if not member_obj:
+        return False
+    status = getattr(member_obj, "status", "")
+    try:
+        if hasattr(status, "value"):
+            status = str(status.value)
+    except Exception:
+        status = str(status)
+    return str(status).lower() in ("administrator", "creator", "owner")
 
 def get_size(size: int) -> str:
     units = ["Bytes", "KB", "MB", "GB", "TB"]
