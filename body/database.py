@@ -107,4 +107,27 @@ async def delete_suffix(channel_id: int):
 async def delete_prefix(channel_id: int):
     await chnl_ids.update_one({"chnl_id": channel_id}, {"$unset": {"prefix": ""}})
 
+# ---------------- Link remover ----------------
+async def get_link_remover_status(channel_id: int) -> bool:
+    doc = await chnl_ids.find_one({"chnl_id": channel_id})
+    return bool(doc.get("link_remover", False)) if doc else False
+
+async def set_link_remover_status(channel_id: int, status: bool):
+    await chnl_ids.update_one({"chnl_id": channel_id}, {"$set": {"link_remover": bool(status)}}, upsert=True)
+
+# ---------------- Replace words ----------------
+async def get_replace_words(channel_id: int) -> Optional[str]:
+    """Return stored replace words string (raw) or None."""
+    doc = await chnl_ids.find_one({"chnl_id": channel_id})
+    return doc.get("replace_words") if doc else None
+
+
+async def set_replace_words(channel_id: int, text: str):
+    """Store raw replace words text."""
+    await chnl_ids.update_one({"chnl_id": channel_id}, {"$set": {"replace_words": text}}, upsert=True)
+
+
+async def delete_replace_words_db(channel_id: int):
+    await chnl_ids.update_one({"chnl_id": channel_id}, {"$unset": {"replace_words": ""}})
+
 
