@@ -33,17 +33,33 @@ async def when_added_as_admin(client, chat_member_update):
                 owner_id = getattr(owner, "id", None)
 
                 if owner_id:
-                    # Save channel info in DB
+                    # Treat channel as newly added for user
                     await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
 
-                    # Send confirmation
+                    # Ensure channel settings exist in DB (if previously removed, keep old settings)
+                    existing_settings = await get_channel_caption(chat.id)
+                    if not existing_settings:
+                        # Initialize default settings if no previous data
+                        await addCap(chat.id, DEF_CAP)
+                        await set_block_words(chat.id, [])
+                        await set_prefix(chat.id, "")
+                        await set_suffix(chat.id, "")
+                        await set_replace_words(chat.id, "")
+                        await set_link_remover_status(chat.id, False)
+
+                    # Send confirmation to user
                     try:
                         await client.send_message(
                             owner_id,
-                            f"✅ Successfully added to <b>{chat.title}</b> as admin!",
+                            f"✅ Successfully added to <b>{chat.title}</b> as admin!\n"
+                            f"All previous settings restored (if any).",
                         )
                     except Exception as e:
                         print(f"Could not message owner: {e}")
+
+    except Exception as e:
+        print(f"Error in when_added_as_admin: {e}")
+
 
     except Exception as e:
         print(f"Error in when_added_as_admin: {e}")
