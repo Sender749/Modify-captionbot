@@ -7,6 +7,21 @@ from body.Caption import bot_data
 
 FONT_TXT = script.FONT_TXT
 
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from body.database import *
+from info import *
+from Script import script
+from body.Caption import bot_data 
+
+FONT_TXT = script.FONT_TXT
+
+async def safe_delete(msg):
+    try:
+        await msg.delete()
+    except:
+        pass
+
 @Client.on_callback_query(filters.regex(r'^chinfo_(-?\d+)$'))
 async def channel_settings(client, query):
     user_id = query.from_user.id
@@ -22,6 +37,10 @@ async def channel_settings(client, query):
         await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": channel_id}}})
         return await query.message.edit_text("⚠️ Unable to access this channel. It was removed from your list.")
 
+    # Get current link remover status
+    link_status = await get_link_remover_status(channel_id)
+    link_text = "Link Remover (ON)" if link_status else "Link Remover (OFF)"
+
     buttons = [
         [InlineKeyboardButton("📝 Set Caption", callback_data=f"setcap_{channel_id}")],
         [InlineKeyboardButton("🧹 Set Words Remover", callback_data=f"setwords_{channel_id}")],
@@ -33,7 +52,6 @@ async def channel_settings(client, query):
     ]
 
     await query.message.edit_text(f"⚙️ Manage channel: **{chat.title}**", reply_markup=InlineKeyboardMarkup(buttons))
-
 
 @Client.on_callback_query(filters.regex(r'^back_channels$'))
 async def back_to_channels(client, query):
@@ -68,13 +86,9 @@ async def back_to_channels(client, query):
     buttons = [[InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid]
     await query.message.edit_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
 
-
 @Client.on_callback_query(filters.regex(r'^close_msg$'))
 async def close_message(client, query):
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
+    await safe_delete(query.message)
 
 
 @Client.on_callback_query(filters.regex(r'^setcap_(-?\d+)$'))
