@@ -10,7 +10,6 @@ from pyrogram import enums
 from info import *
 from Script import script
 from body.database import *  
-from CallbackQuery.py import *
 
 bot_data = {}
 
