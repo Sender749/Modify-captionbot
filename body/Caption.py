@@ -25,48 +25,47 @@ async def when_added_as_admin(client, chat_member_update):
         new = chat_member_update.new_chat_member
         chat = chat_member_update.chat
 
-        # Only process if the bot itself is promoted
-        if new.user and new.user.is_self:
-            if new.status in ("administrator", "creator"):
+        # Only proceed if the bot itself is promoted
+        if not new.user or not new.user.is_self:
+            return
 
-                owner = getattr(chat_member_update, "from_user", None)
-                owner_id = getattr(owner, "id", None)
+        # Determine who added the bot (owner)
+        owner = getattr(chat_member_update, "from_user", None)
+        owner_id = getattr(owner, "id", None)
 
-                if owner_id:
-                    # Treat channel as newly added for user
-                    await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
+        # If added manually and no from_user, fallback to a default admin
+        if owner_id is None:
+            print(f"Bot manually added to channel: {chat.title} ({chat.id})")
+            owner_id = DEFAULT_ADMIN_ID  # Replace with your Telegram ID
 
-                    # Ensure channel settings exist in DB (if previously removed, keep old settings)
-                    existing_settings = await get_channel_caption(chat.id)
-                    if not existing_settings:
-                        # Initialize default settings if no previous data
-                        await addCap(chat.id, DEF_CAP)
-                        await set_block_words(chat.id, [])
-                        await set_prefix(chat.id, "")
-                        await set_suffix(chat.id, "")
-                        await set_replace_words(chat.id, "")
-                        await set_link_remover_status(chat.id, False)
+        # Save channel to DB
+        await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
 
-                    # Send confirmation to user
-                    try:
-                        await client.send_message(
-                            owner_id,
-                            f"✅ Successfully added to <b>{chat.title}</b> as admin!\n"
-                            f"All previous settings restored (if any).",
-                        )
-                    except Exception as e:
-                        print(f"Could not message owner: {e}")
+        # Ensure channel settings exist
+        existing_settings = await get_channel_caption(chat.id)
+        if not existing_settings:
+            await addCap(chat.id, DEF_CAP)
+            await set_block_words(chat.id, [])
+            await set_prefix(chat.id, "")
+            await set_suffix(chat.id, "")
+            await set_replace_words(chat.id, "")
+            await set_link_remover_status(chat.id, False)
 
-    except Exception as e:
-        print(f"Error in when_added_as_admin: {e}")
-
-
-    except Exception as e:
-        print(f"Error in when_added_as_admin: {e}")
-
+        # Send confirmation to owner
+        try:
+            await client.send_message(
+                owner_id,
+                f"✅ Successfully added to <b>{chat.title}</b> as admin!\n"
+                "All previous settings restored (if any)."
+            )
+        except Exception as e:
+            print(f"Could not send confirmation message: {e}")
 
     except Exception as e:
         print(f"Error in when_added_as_admin: {e}")
+
+def _is_admin_member(member):
+    return getattr(member, "status", "") in ("administrator", "creator")
 
 
 # ---------------- Commands ----------------
@@ -95,7 +94,6 @@ async def start_cmd(client, message):
 
     # ---------------- Detect startchannel ----------------
     if message.text and "startchannel" in message.text.lower():
-        # fetch all chats where bot is admin
         dialogs = await client.get_dialogs()
         added_channels = 0
         for dialog in dialogs:
@@ -104,7 +102,6 @@ async def start_cmd(client, message):
                 member = await client.get_chat_member(chat.id, "me")
                 if getattr(chat, "type", "") in ("channel",) and _is_admin_member(member):
                     await add_user_channel(user_id, chat.id, chat.title or "Unnamed Channel")
-                    # Ensure channel settings exist
                     existing_settings = await get_channel_caption(chat.id)
                     if not existing_settings:
                         await addCap(chat.id, DEF_CAP)
@@ -221,6 +218,16 @@ async def user_settings(client, message):
 
     buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
     await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_message(filters.command("reset") & filters.user(ADMIN))
+async def reset_db(client, message):
+    await message.reply_text("⚠️ This will delete all users, channels, captions, and settings from the database.\nProcessing...")
+
+    await users.delete_many({})
+    await chnl_ids.delete_many({})
+    await user_channels.delete_many({})
+
+    await message.reply_text("✅ All database records have been deleted successfully!")
 
 
 # ---------------- Auto Caption core ----------------
