@@ -4,195 +4,51 @@ import re
 import os
 import sys
 from typing import Tuple, List, Dict, Optional
-
 from pyrogram import Client, filters, errors
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram import enums
-
 from info import *
 from Script import script
-from body.database import *  # chnl_ids, users, etc.
+from body.database import *  
+from CallbackQuery.py import *
 
-# Temporary session storage for interactive flows
 bot_data = {}
 
-# ---------------- Helper functions ----------------
-
-def _status_name(member_obj):
-    status = getattr(member_obj, "status", "")
+@Client.on_chat_member_updated()
+async def when_added_as_admin(client, chat_member_update):
     try:
-        if hasattr(status, "value"):
-            return str(status.value).lower()
-    except Exception:
-        pass
-    try:
-        return str(status).lower()
-    except Exception:
-        return ""
+        new = chat_member_update.new_chat_member
+        old = chat_member_update.old_chat_member
+        chat = chat_member_update.chat
 
+        # Check if the bot itself was promoted to admin
+        if new.user and new.user.is_self:
+            if new.status in ("administrator", "creator"):
+                owner = chat_member_update.from_user
+                owner_id = owner.id if owner else None
 
-def _is_admin_member(member_obj) -> bool:
-    name = _status_name(member_obj)
-    return ("administrator" in name) or ("creator" in name) or ("owner" in name)
+                # Save channel info in DB
+                if owner_id:
+                    await add_user_channel(
+                        owner_id,
+                        chat.id,
+                        chat.title or "Unnamed Channel"
+                    )
 
+                    # Send confirmation message to the user
+                    try:
+                        await client.send_message(
+                            owner_id,
+                            f"✅ Successfully added to <b>{chat.title}</b> as admin!",
+                        )
+                    except Exception as e:
+                        print(f"Could not message owner: {e}")
 
-def get_size(size: int) -> str:
-    units = ["Bytes", "KB", "MB", "GB", "TB"]
-    i = 0
-    while size >= 1024.0 and i < len(units) - 1:
-        size /= 1024.0
-        i += 1
-    return "%.2f %s" % (size, units[i])
-
-
-def extract_language(default_caption: str) -> str:
-    pattern = r'\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Hin)\b'
-    langs = set(re.findall(pattern, default_caption or "", re.IGNORECASE))
-    return ", ".join(sorted(langs, key=str.lower)) if langs else "Hindi-English"
-
-
-def extract_year(default_caption: str) -> Optional[str]:
-    match = re.search(r'\b(19\d{2}|20\d{2})\b', default_caption or "")
-    return match.group(1) if match else None
-
-
-# ---------------- DB helpers (local wrappers) ----------------
-# We keep these here so we don't need to modify database.py
-
-async def get_link_remover_status(channel_id: int) -> bool:
-    doc = await chnl_ids.find_one({"chnl_id": channel_id})
-    return bool(doc.get("link_remover", False)) if doc else False
-
-
-async def set_link_remover_status(channel_id: int, status: bool):
-    await chnl_ids.update_one({"chnl_id": channel_id}, {"$set": {"link_remover": bool(status)}}, upsert=True)
-
-
-async def get_replace_words(channel_id: int) -> Optional[str]:
-    """Return stored replace words string (raw) or None."""
-    doc = await chnl_ids.find_one({"chnl_id": channel_id})
-    return doc.get("replace_words") if doc else None
-
-
-async def set_replace_words(channel_id: int, text: str):
-    """Store raw replace words text."""
-    await chnl_ids.update_one({"chnl_id": channel_id}, {"$set": {"replace_words": text}}, upsert=True)
-
-
-async def delete_replace_words_db(channel_id: int):
-    await chnl_ids.update_one({"chnl_id": channel_id}, {"$unset": {"replace_words": ""}})
-
-
-# ---------------- Text-processing utilities ----------------
-
-URL_RE = re.compile(
-    r"(https?://[^\s]+|www\.[^\s]+|t\.me/[^\s/]+(?:/[^\s]+)?)",
-    flags=re.IGNORECASE
-)
-
-MENTION_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
-
-# Markdown/HTML link patterns to extract display text: [text](url) and <a href="...">text</a> and tg://user links
-MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+|tg:\/\/[^\)]+)\)', flags=re.IGNORECASE)
-HTML_A_RE = re.compile(r'<a\s+[^>]*href=["\'](?:https?:\/\/|tg:\/)[^"\']+["\'][^>]*>(.*?)</a>', flags=re.IGNORECASE)
-TG_USER_LINK_RE = re.compile(r'\[([^\]]+)\]\(tg:\/\/user\?id=\d+\)', flags=re.IGNORECASE)
-
-def strip_links_and_mentions_keep_text(text: str) -> str:
-    """
-    Remove links but keep display text for Markdown/HTML links where possible.
-    Also remove bare mentions @username.
-    """
-    if not text:
-        return text
-
-    # Convert markdown links [text](url) -> text
-    text = MD_LINK_RE.sub(r'\1', text)
-    # Convert telegram user links in markdown -> text
-    text = TG_USER_LINK_RE.sub(r'\1', text)
-    # Convert html <a href="...">text</a> -> text
-    text = HTML_A_RE.sub(r'\1', text)
-    # Remove plain URLs (but if URL words are same as display text we already handled)
-    text = URL_RE.sub("", text)
-    # Remove mentions like @username
-    text = MENTION_RE.sub("", text)
-    # Clean multiple spaces
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def remove_mentions_only(text: str) -> str:
-    if not text:
-        return text
-    # Remove mentions and tg user links entirely
-    text = MENTION_RE.sub("", text)
-    text = TG_USER_LINK_RE.sub("", text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def apply_block_words(text: str, blocked: List[str]) -> str:
-    """Remove blocked words occurrences (word boundaries) case-insensitive."""
-    if not blocked or not text:
-        return text
-    # Build regex that matches each word as whole word
-    safe_text = text
-    for w in blocked:
-        if not w:
-            continue
-        pattern = r'\b' + re.escape(w) + r'\b'
-        safe_text = re.sub(pattern, '', safe_text, flags=re.IGNORECASE)
-    safe_text = re.sub(r'\s+', ' ', safe_text).strip()
-    return safe_text
-
-def parse_replace_pairs(raw: str) -> List[Tuple[str, str]]:
-    """
-    Parse replacement pairs stored as raw string by user.
-    Expected format (flexible):
-      old1 new1, old2 new2
-    or each pair on new line:
-      old1 new1
-      old2 new2
-    Returns list of (old, new).
-    """
-    if not raw:
-        return []
-    pairs = []
-    # normalize separators to comma
-    raw = raw.replace('\n', ',')
-    items = [p.strip() for p in raw.split(',') if p.strip()]
-    for item in items:
-        # split by whitespace into exactly two parts (old and new)
-        parts = item.split()
-        if len(parts) >= 2:
-            old = parts[0]
-            new = " ".join(parts[1:])
-            pairs.append((old, new))
-    return pairs
-
-def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
-    if not pairs or not text:
-        return text
-    new_text = text
-    # apply simple case-insensitive replacement preserving other text
-    # We'll replace word occurrences and also substrings (user expects simple old->new)
-    for old, new in pairs:
-        if not old:
-            continue
-        # Use regex to replace whole words and also occurrences; try whole word first
-        try:
-            # replace whole words case-insensitive
-            pattern = re.compile(r'\b' + re.escape(old) + r'\b', flags=re.IGNORECASE)
-            new_text = pattern.sub(new, new_text)
-            # fallback: replace any substring occurrences (if any remain)
-            if re.search(re.escape(old), new_text, flags=re.IGNORECASE):
-                new_text = re.sub(re.escape(old), new, new_text, flags=re.IGNORECASE)
-        except re.error:
-            # fallback naive replace
-            new_text = new_text.replace(old, new)
-    new_text = re.sub(r'\s+', ' ', new_text).strip()
-    return new_text
+    except Exception as e:
+        print(f"Error in when_added_as_admin: {e}")
 
 
 # ---------------- Commands ----------------
-
 @Client.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     user_id = int(message.from_user.id)
@@ -404,9 +260,152 @@ async def reCap(client, message):
     except Exception as e:
         print("Caption edit failed:", e)
 
+# ---------------- Helper functions ----------------
+
+def _status_name(member_obj):
+    status = getattr(member_obj, "status", "")
+    try:
+        if hasattr(status, "value"):
+            return str(status.value).lower()
+    except Exception:
+        pass
+    try:
+        return str(status).lower()
+    except Exception:
+        return ""
+
+
+def _is_admin_member(member_obj) -> bool:
+    name = _status_name(member_obj)
+    return ("administrator" in name) or ("creator" in name) or ("owner" in name)
+
+
+def get_size(size: int) -> str:
+    units = ["Bytes", "KB", "MB", "GB", "TB"]
+    i = 0
+    while size >= 1024.0 and i < len(units) - 1:
+        size /= 1024.0
+        i += 1
+    return "%.2f %s" % (size, units[i])
+
+
+def extract_language(default_caption: str) -> str:
+    pattern = r'\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Hin)\b'
+    langs = set(re.findall(pattern, default_caption or "", re.IGNORECASE))
+    return ", ".join(sorted(langs, key=str.lower)) if langs else "Hindi-English"
+
+
+def extract_year(default_caption: str) -> Optional[str]:
+    match = re.search(r'\b(19\d{2}|20\d{2})\b', default_caption or "")
+    return match.group(1) if match else None
+
+
+URL_RE = re.compile(
+    r"(https?://[^\s]+|www\.[^\s]+|t\.me/[^\s/]+(?:/[^\s]+)?)",
+    flags=re.IGNORECASE
+)
+
+MENTION_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
+
+# Markdown/HTML link patterns to extract display text: [text](url) and <a href="...">text</a> and tg://user links
+MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+|tg:\/\/[^\)]+)\)', flags=re.IGNORECASE)
+HTML_A_RE = re.compile(r'<a\s+[^>]*href=["\'](?:https?:\/\/|tg:\/)[^"\']+["\'][^>]*>(.*?)</a>', flags=re.IGNORECASE)
+TG_USER_LINK_RE = re.compile(r'\[([^\]]+)\]\(tg:\/\/user\?id=\d+\)', flags=re.IGNORECASE)
+
+def strip_links_and_mentions_keep_text(text: str) -> str:
+    """
+    Remove links but keep display text for Markdown/HTML links where possible.
+    Also remove bare mentions @username.
+    """
+    if not text:
+        return text
+
+    # Convert markdown links [text](url) -> text
+    text = MD_LINK_RE.sub(r'\1', text)
+    # Convert telegram user links in markdown -> text
+    text = TG_USER_LINK_RE.sub(r'\1', text)
+    # Convert html <a href="...">text</a> -> text
+    text = HTML_A_RE.sub(r'\1', text)
+    # Remove plain URLs (but if URL words are same as display text we already handled)
+    text = URL_RE.sub("", text)
+    # Remove mentions like @username
+    text = MENTION_RE.sub("", text)
+    # Clean multiple spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+def remove_mentions_only(text: str) -> str:
+    if not text:
+        return text
+    # Remove mentions and tg user links entirely
+    text = MENTION_RE.sub("", text)
+    text = TG_USER_LINK_RE.sub("", text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+def apply_block_words(text: str, blocked: List[str]) -> str:
+    """Remove blocked words occurrences (word boundaries) case-insensitive."""
+    if not blocked or not text:
+        return text
+    # Build regex that matches each word as whole word
+    safe_text = text
+    for w in blocked:
+        if not w:
+            continue
+        pattern = r'\b' + re.escape(w) + r'\b'
+        safe_text = re.sub(pattern, '', safe_text, flags=re.IGNORECASE)
+    safe_text = re.sub(r'\s+', ' ', safe_text).strip()
+    return safe_text
+
+def parse_replace_pairs(raw: str) -> List[Tuple[str, str]]:
+    """
+    Parse replacement pairs stored as raw string by user.
+    Expected format (flexible):
+      old1 new1, old2 new2
+    or each pair on new line:
+      old1 new1
+      old2 new2
+    Returns list of (old, new).
+    """
+    if not raw:
+        return []
+    pairs = []
+    # normalize separators to comma
+    raw = raw.replace('\n', ',')
+    items = [p.strip() for p in raw.split(',') if p.strip()]
+    for item in items:
+        # split by whitespace into exactly two parts (old and new)
+        parts = item.split()
+        if len(parts) >= 2:
+            old = parts[0]
+            new = " ".join(parts[1:])
+            pairs.append((old, new))
+    return pairs
+
+def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
+    if not pairs or not text:
+        return text
+    new_text = text
+    # apply simple case-insensitive replacement preserving other text
+    # We'll replace word occurrences and also substrings (user expects simple old->new)
+    for old, new in pairs:
+        if not old:
+            continue
+        # Use regex to replace whole words and also occurrences; try whole word first
+        try:
+            # replace whole words case-insensitive
+            pattern = re.compile(r'\b' + re.escape(old) + r'\b', flags=re.IGNORECASE)
+            new_text = pattern.sub(new, new_text)
+            # fallback: replace any substring occurrences (if any remain)
+            if re.search(re.escape(old), new_text, flags=re.IGNORECASE):
+                new_text = re.sub(re.escape(old), new, new_text, flags=re.IGNORECASE)
+        except re.error:
+            # fallback naive replace
+            new_text = new_text.replace(old, new)
+    new_text = re.sub(r'\s+', ' ', new_text).strip()
+    return new_text
 
 # ---------------- Interactive flows (capture handlers) ----------------
-
 @Client.on_message(filters.private)
 async def capture_caption(client, message):
     user_id = message.from_user.id
