@@ -36,9 +36,15 @@ async def getid():
 async def add_user_channel(user_id, channel_id, channel_title):
     await users.update_one(
         {"_id": user_id},
-        {"$addToSet": {"channels": {"channel_id": channel_id, "channel_title": channel_title}}},
+        {"$pull": {"channels": {"channel_id": channel_id}}}
+    )
+
+    await users.update_one(
+        {"_id": user_id},
+        {"$push": {"channels": {"channel_id": channel_id, "channel_title": channel_title}}},
         upsert=True
     )
+
 
 async def get_user_channels(user_id):
     data = await users.find_one({"_id": user_id})
