@@ -525,50 +525,112 @@ async def capture_caption(client, message):
 
 
 @Client.on_message(filters.private)
-async def capture_block_words(client, message):
+async def handle_user_inputs(client, message):
     user_id = message.from_user.id
-    if "block_words_set" not in bot_data or user_id not in bot_data["block_words_set"]:
-        return
+    if user_id in bot_data.get("block_words_set", {}):
+        session = bot_data["block_words_set"][user_id]
+        channel_id = session["channel_id"]
+        instr_msg_id = session.get("instr_msg_id")
 
-    session = bot_data["block_words_set"][user_id]
-    channel_id = session["channel_id"]
-    instr_msg_id = session.get("instr_msg_id")
-
-    # Cancel command
-    if message.text and message.text.strip().lower() == "/cancel":
-        if instr_msg_id:
+        if message.text and message.text.strip().lower() == "/cancel":
             try:
-                await client.delete_messages(user_id, instr_msg_id)
+                await client.delete_messages(user_id, [message.id, instr_msg_id])
             except Exception:
                 pass
-        await message.reply_text(
-            "❌ Process canceled.",
+
+            bot_data["block_words_set"].pop(user_id, None)
+            await client.send_message(
+                user_id,
+                "❌ Process cancelled.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"setwords_{channel_id}")]])
+            )
+            return
+
+        text = message.text.strip() if message.text else ""
+        if not text:
+            await message.reply_text("⚠️ Please send valid text.")
+            return
+
+        words = [w.strip() for w in re.split(r'[,\n]+', text) if w.strip()]
+
+        try:
+            await set_block_words(channel_id, words)
+        except Exception as e:
+            print("Error saving blocked words:", e)
+
+        try:
+            await client.delete_messages(user_id, [message.id, instr_msg_id])
+        except Exception:
+ 
+        await client.send_message(
+            user_id,
+            f"✅ Blocked words updated: {', '.join(words)}",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"setwords_{channel_id}")]])
         )
+
         bot_data["block_words_set"].pop(user_id, None)
         return
 
-    text = message.text.strip() if message.text else ""
-    if not text:
-        await message.reply_text("Please send valid text.")
+    # ================= REPLACE WORDS =================
+    if user_id in bot_data.get("replace_words_set", {}):
+        session = bot_data["replace_words_set"][user_id]
+        channel_id = session["channel_id"]
+        instr_msg_id = session.get("instr_msg_id")
+
+        # Cancel command
+        if message.text and message.text.strip().lower() == "/cancel":
+            try:
+                await client.delete_messages(user_id, [message.id, instr_msg_id])
+            except Exception:
+                pass
+
+            bot_data["replace_words_set"].pop(user_id, None)
+            await client.send_message(
+                user_id,
+                "❌ Process cancelled.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"setreplace_{channel_id}")]])
+            )
+            return
+
+        # Parse replacement pairs
+        text = message.text.strip() if message.text else ""
+        if not text:
+            await message.reply_text("⚠️ Please send valid text in format: `old new, another_old another_new`")
+            return
+
+        pairs = [pair.strip() for pair in text.split(",") if pair.strip()]
+        replace_dict = {}
+
+        for pair in pairs:
+            parts = pair.split(None, 1)
+            if len(parts) == 2:
+                old, new = parts
+                replace_dict[old] = new
+
+        if not replace_dict:
+            await message.reply_text("⚠️ Invalid format. Use: `old new, another_old another_new`")
+            return
+
+        try:
+            await set_replace_words(channel_id, replace_dict)
+        except Exception as e:
+            print("Error saving replace words:", e)
+
+        # Delete messages
+        try:
+            await client.delete_messages(user_id, [message.id, instr_msg_id])
+        except Exception:
+            pass
+
+        # Confirmation
+        await client.send_message(
+            user_id,
+            "✅ Replace words updated successfully.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"setreplace_{channel_id}")]])
+        )
+
+        bot_data["replace_words_set"].pop(user_id, None)
         return
-
-    # accept comma separated
-    words = [w.strip() for w in re.split(r'[,\n]+', text) if w.strip()]
-    try:
-        await set_block_words(channel_id, words)
-    except Exception as e:
-        print("Error saving blocked words:", e)
-
-    try:
-        await client.delete_messages(user_id, [message.id, instr_msg_id])
-    except Exception:
-        pass
-
-    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setwords_{channel_id}")]]
-    await client.send_message(user_id, "✅ Blocked words updated successfully.", reply_markup=InlineKeyboardMarkup(buttons))
-
-    bot_data["block_words_set"].pop(user_id, None)
 
 
 @Client.on_message(filters.private)
