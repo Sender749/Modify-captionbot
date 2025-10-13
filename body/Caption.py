@@ -11,7 +11,14 @@ from info import *
 from Script import script
 from body.database import *  
 
-bot_data = {}
+bot_data = {
+    "caption_set": {},
+    "block_words_set": {},
+    "suffix_set": {},
+    "prefix_set": {},
+    "replace_words_set": {}
+}
+
 
 @Client.on_chat_member_updated()
 async def when_added_as_admin(client, chat_member_update):
@@ -128,12 +135,9 @@ async def restart_bot(client, message):
 
 @Client.on_message(filters.command("settings") & filters.private)
 async def user_settings(client, message):
-    """
-    Show channels for the user where bot is admin.
-    This function will also remove channels from DB where bot isn't admin anymore.
-    """
     user_id = message.from_user.id
     channels = await get_user_channels(user_id)
+    print("Channels from DB:", channels)
 
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
@@ -141,14 +145,12 @@ async def user_settings(client, message):
     valid_channels = []
     removed_titles = []
 
-    # Validate channels by checking current membership status
     for ch in channels:
         ch_id = ch.get("channel_id")
         ch_title = ch.get("channel_title", str(ch_id))
         try:
             member = await client.get_chat_member(ch_id, "me")
             if _is_admin_member(member):
-                # Use fresh title if available
                 try:
                     chat = await client.get_chat(ch_id)
                     ch_title = getattr(chat, "title", ch_title)
@@ -156,11 +158,9 @@ async def user_settings(client, message):
                     pass
                 valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
             else:
-                # remove if bot no longer admin
                 await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
                 removed_titles.append(ch_title)
         except Exception:
-            # if cannot access, remove from user's list
             await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
             removed_titles.append(ch_title)
 
@@ -194,9 +194,14 @@ async def reCap(client, message):
     file_size = None
     for file_type in ("video", "audio", "document", "voice"):
         obj = getattr(message, file_type, None)
-        if obj and hasattr(obj, "file_name"):
-            file_name = obj.file_name.replace("_", " ").replace(".", " ")
-            file_size = get_size(obj.file_size)
+        if obj:
+            file_name = getattr(obj, "file_name", None)
+            if not file_name and file_type == "voice":
+                file_name = "Voice Message"
+            elif not file_name:
+                file_name = "File"
+            file_name = file_name.replace("_", " ").replace(".", " ")
+            file_size = get_size(getattr(obj, "file_size", 0))
             break
 
     if not file_name:
@@ -346,7 +351,6 @@ def apply_block_words(text: str, blocked: List[str]) -> str:
     """Remove blocked words occurrences (word boundaries) case-insensitive."""
     if not blocked or not text:
         return text
-    # Build regex that matches each word as whole word
     safe_text = text
     for w in blocked:
         if not w:
@@ -355,6 +359,7 @@ def apply_block_words(text: str, blocked: List[str]) -> str:
         safe_text = re.sub(pattern, '', safe_text, flags=re.IGNORECASE)
     safe_text = re.sub(r'\s+', ' ', safe_text).strip()
     return safe_text
+
 
 def parse_replace_pairs(raw: str) -> List[Tuple[str, str]]:
     """
