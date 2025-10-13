@@ -32,18 +32,17 @@ async def getid():
     return users_list
 
 # ---------------- Channel functions ----------------
-async def add_channel(user_id: int, channel_id: int, channel_title: str):
-    """Add channel to user channels"""
+async def add_user_channel(user_id, channel_id, channel_title):
     await users.update_one(
         {"_id": user_id},
         {"$addToSet": {"channels": {"channel_id": channel_id, "channel_title": channel_title}}},
         upsert=True
     )
 
-async def get_user_channels(user_id: int):
-    """Get all channels added by user"""
-    user = await users.find_one({"_id": user_id})
-    return user.get("channels", []) if user else []
+async def get_user_channels(user_id):
+    data = await users.find_one({"_id": user_id})
+    return data.get("channels", []) if data else []
+
 
 # ---------------- Caption functions ----------------
 async def addCap(chnl_id: int, caption: str):
