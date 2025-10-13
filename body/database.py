@@ -33,7 +33,7 @@ async def getid():
     return users_list
 
 # ---------------- Channel functions ----------------
-async def add_user_channel(user_id, channel_id, channel_title):
+async def add_user_channel(user_id: int, channel_id: int, channel_title: str):
     await users.update_one(
         {"_id": user_id},
         {"$pull": {"channels": {"channel_id": channel_id}}}
