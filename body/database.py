@@ -1,5 +1,6 @@
 import motor.motor_asyncio
 from info import *
+from typing import Optional
 
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_DB)
 db = client.captions_with_chnl
