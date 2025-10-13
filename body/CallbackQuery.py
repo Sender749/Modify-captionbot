@@ -22,40 +22,34 @@ async def safe_delete(msg):
     except:
         pass
 
-async def is_bot_admin(client, channel_id: int) -> bool:
-    """
-    Check if bot is admin in the channel.
-    Returns True if bot has 'administrator' or 'creator' status.
-    """
-    try:
-        member = await client.get_chat_member(channel_id, "me")
-        status = getattr(member, "status", "").lower()
-        return status in ("administrator", "creator", "owner")
-    except Exception:
-        # Could not fetch member (API, privacy, broadcast channel)
-        return None  # None = unknown, don't remove channel
-
 @Client.on_callback_query(filters.regex(r'^chinfo_(-?\d+)$'))
 async def channel_settings(client, query):
     user_id = query.from_user.id
     channel_id = int(query.matches[0].group(1))
 
     try:
-        chat = await client.get_chat(channel_id)
-    except Exception:
-        await query.message.edit_text("⚠️ Unable to access this channel. Try again later.")
-        return
-
-    is_admin = await is_bot_admin(client, channel_id)
-    if is_admin is False:
-        await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": channel_id}}})
-        return await query.message.edit_text(f"⚠️ I am not admin in **{chat.title}** anymore. Removed from your list.")
-    elif is_admin is None:
-        # Unknown status, don't remove; just warn
-        await query.message.edit_text(f"⚠️ Could not verify my admin rights in **{chat.title}**. Try later or check permissions.")
-        return
+        member = await client.get_chat_member(channel_id, "me")
+        if not _is_admin_member(member):
+            # Bot lost admin
+            await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": channel_id}}})
+            return await query.message.edit_text(f"⚠️ I am not admin in this channel anymore. Removed from your list.")
         
-    # Get current link remover status
+        # Try to fetch chat title safely
+        try:
+            chat = await client.get_chat(channel_id)
+            chat_title = getattr(chat, "title", str(channel_id))
+        except errors.RPCError:
+            chat_title = str(channel_id)
+
+    except errors.ChatAdminRequired:
+        return await query.message.edit_text(f"⚠️ I need admin rights to access this channel: {channel_id}")
+    except errors.ChatWriteForbidden:
+        return await query.message.edit_text(f"⚠️ Cannot write to this channel: {channel_id}")
+    except Exception:
+        # Skip removal for temporary API issues
+        chat_title = str(channel_id)
+
+    # Continue normal channel settings flow
     link_status = await get_link_remover_status(channel_id)
     link_text = "Link Remover (ON)" if link_status else "Link Remover (OFF)"
 
@@ -69,7 +63,7 @@ async def channel_settings(client, query):
          InlineKeyboardButton("❌ Close", callback_data="close_msg")]
     ]
 
-    await query.message.edit_text(f"⚙️ Manage channel: **{chat.title}**", reply_markup=InlineKeyboardMarkup(buttons))
+    await query.message.edit_text(f"⚙️ Manage channel: **{chat_title}**", reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex(r'^back_channels$'))
 async def back_to_channels(client, query):
