@@ -561,6 +561,7 @@ async def handle_user_inputs(client, message):
         try:
             await client.delete_messages(user_id, [message.id, instr_msg_id])
         except Exception:
+            pass
  
         await client.send_message(
             user_id,
@@ -571,13 +572,11 @@ async def handle_user_inputs(client, message):
         bot_data["block_words_set"].pop(user_id, None)
         return
 
-    # ================= REPLACE WORDS =================
     if user_id in bot_data.get("replace_words_set", {}):
         session = bot_data["replace_words_set"][user_id]
         channel_id = session["channel_id"]
         instr_msg_id = session.get("instr_msg_id")
 
-        # Cancel command
         if message.text and message.text.strip().lower() == "/cancel":
             try:
                 await client.delete_messages(user_id, [message.id, instr_msg_id])
@@ -592,7 +591,6 @@ async def handle_user_inputs(client, message):
             )
             return
 
-        # Parse replacement pairs
         text = message.text.strip() if message.text else ""
         if not text:
             await message.reply_text("⚠️ Please send valid text in format: `old new, another_old another_new`")
@@ -616,7 +614,6 @@ async def handle_user_inputs(client, message):
         except Exception as e:
             print("Error saving replace words:", e)
 
-        # Delete messages
         try:
             await client.delete_messages(user_id, [message.id, instr_msg_id])
         except Exception:
