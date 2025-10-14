@@ -52,24 +52,22 @@ async def back_to_channels(client, query):
         ch_title = ch.get("channel_title", str(ch_id))
         try:
             member = await client.get_chat_member(ch_id, "me")
-            if _is_admin_member(member):
+            if member.status in ("administrator", "creator"):
                 valid.append(ch)
             else:
-                await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
                 removed.append(ch_title)
-        except Exception:
-            await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
+        except ChatAdminRequired:
             removed.append(ch_title)
+        except Exception as e:
+            print(f"[WARN] Error checking {ch_id}: {e}")
+            continue  
 
     if removed:
         removed_text = "• " + "\n• ".join(removed)
-        try:
-            await query.message.reply_text(f"⚠️ Removed from your list (no admin/access):\n{removed_text}")
-        except Exception:
-            pass
+        await query.message.reply_text(f"⚠️ Lost access in:\n{removed_text}")
 
     if not valid:
-        return await query.message.edit_text("You haven’t added me to any channels where I am admin.")
+        return await query.message.edit_text("No active channels found where I’m admin.")
 
     buttons = [[InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid]
     await query.message.edit_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
