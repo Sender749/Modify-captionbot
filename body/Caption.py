@@ -21,6 +21,7 @@ bot_data = {
 }
 
 
+# Caption.py — replace existing when_added_as_admin with this:
 @Client.on_chat_member_updated()
 async def when_added_as_admin(client, event):
     """Triggered whenever bot’s admin status changes in a channel"""
@@ -29,44 +30,78 @@ async def when_added_as_admin(client, event):
         old = event.old_chat_member
         chat = event.chat
 
-        # Only handle channels (not groups, supergroups, etc.)
-        if chat.type not in ("channel",):
+        # Only handle channels
+        if getattr(chat, "type", "") != "channel":
             return
 
-        # Only handle when bot itself is added or promoted
+        # Only proceed if the update is about the bot itself
         if not new or not new.user or not new.user.is_self:
             return
 
-        # Detect if bot got admin rights now
-        if (not old or old.status != "administrator") and new.status == "administrator":
+        # If bot just became administrator (previously wasn't admin)
+        was_admin_before = bool(old and getattr(old, "status", "") in ("administrator", "creator", "owner"))
+        is_admin_now = getattr(new, "status", "") in ("administrator", "creator", "owner")
+        if not was_admin_before and is_admin_now:
+            # Try get who added/promoted the bot
             owner = getattr(event, "from_user", None)
             owner_id = getattr(owner, "id", None)
 
-            # Fallback: If no from_user (bot added manually)
+            # If missing, attempt to find channel creator from admins list
             if not owner_id:
-                # You can choose to skip or use a default admin ID
-                print(f"⚠️ Added manually to {chat.title} ({chat.id}), could not detect owner.")
-                return
+                try:
+                    admins = await client.get_chat_members(chat.id, filter=enums.ChatMembersFilter.ADMINISTRATORS)
+                    # find the creator
+                    creator_id = None
+                    for adm in admins:
+                        try:
+                            st = getattr(adm, "status", "")
+                            # pyrogram ChatMember objects may carry 'status' or nested
+                            if str(st).lower() in ("creator", "owner"):
+                                creator_id = adm.user.id
+                                break
+                        except Exception:
+                            continue
+                    if creator_id:
+                        owner_id = creator_id
+                except Exception as e:
+                    # we couldn't find an owner; fall back to None and skip DM but still save channel
+                    print(f"[WARN] Could not fetch channel admins for owner resolution: {e}")
 
-            # Ensure user exists
-            await insert_user(owner_id)
+            # If still no owner id, we will still register the channel (can't DM owner)
+            if owner_id:
+                await insert_user(owner_id)
+                await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
+            else:
+                # fallback: do nothing with users collection, but still ensure caption/settings exist
+                print(f"[INFO] Bot added to channel {chat.title} ({chat.id}) but owner id unknown. Channel saved without owner mapping.")
 
-            # Add to DB
-            await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
+            # Ensure channel settings exist
+            existing = await get_channel_caption(chat.id)
+            if not existing:
+                await addCap(chat.id, DEF_CAP)
+                await set_block_words(chat.id, [])
+                await set_prefix(chat.id, "")
+                await set_suffix(chat.id, "")
+                await set_replace_words(chat.id, "")
+                await set_link_remover_status(chat.id, False)
 
-            # Confirm to user
-            try:
-                await client.send_message(
-                    owner_id,
-                    f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime from /settings.",
-                )
-            except Exception as e:
-                print(f"Error sending confirmation message: {e}")
+            # Send a DM to owner if we have owner_id and it's not a placeholder/default
+            if owner_id:
+                try:
+                    await client.send_message(
+                        owner_id,
+                        f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime from /settings."
+                    )
+                except Exception as e:
+                    # Could not send DM (blocked user, privacy, etc.)
+                    print(f"[INFO] Could not DM owner ({owner_id}) for channel {chat.id}: {e}")
 
-            print(f"✅ Bot added as admin to {chat.title} ({chat.id}) for user {owner_id}")
+            print(f"[OK] Registered channel {chat.title} ({chat.id}) in DB for owner {owner_id}")
 
-    except Exception as e:
-        print(f"❌ Error in when_added_as_admin:\n{traceback.format_exc()}")
+    except Exception as exc:
+        import traceback
+        print("Error in when_added_as_admin:\n", traceback.format_exc())
+
 
 
 # ---------------- Commands ----------------
@@ -192,36 +227,40 @@ async def user_settings(client, message):
         ch_title = ch.get("channel_title", str(ch_id))
         try:
             member = await client.get_chat_member(ch_id, "me")
-            if member.status in ("administrator", "creator"):
+            if getattr(member, "status", "").lower() in ("administrator", "creator", "owner"):
                 try:
                     chat = await client.get_chat(ch_id)
-                    ch_title = chat.title or ch_title
-                except:
+                    ch_title = getattr(chat, "title", ch_title)
+                except Exception:
                     pass
                 valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
             else:
-                # Bot no longer admin — remove it
+                # it's confirmed bot lost admin rights — remove from DB
                 await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
                 removed_titles.append(ch_title)
-        except RPCError:
+        except ChatAdminRequired:
+            # Bot lacks permission to query this channel — treat as lost access and remove
             await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
             removed_titles.append(ch_title)
+        except RPCError as e:
+            # transient RPC error — skip removing (do not delete DB; allow later retry)
+            print(f"[WARN] RPC error checking channel {ch_id}: {e}")
+            # optionally include in valid list with placeholder title (so user sees it)
+            valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
+        except Exception as ex:
+            print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
+            # skip deletion to avoid accidental removal for transient issues
+            valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
 
-    # Notify about removals
     if removed_titles:
         removed_text = "• " + "\n• ".join(removed_titles)
-        await message.reply_text(f"⚠️ Removed (no admin access):\n{removed_text}")
+        await message.reply_text(f"⚠️ Removed (no admin/access):\n{removed_text}")
 
     if not valid_channels:
         return await message.reply_text("No active channels where I am admin.")
 
-    # Show channels list
-    buttons = [
-        [InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")]
-        for ch in valid_channels
-    ]
+    buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
-
     await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_message(filters.command("reset") & filters.user(ADMIN))
