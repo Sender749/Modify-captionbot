@@ -633,8 +633,6 @@ async def handle_user_inputs(client, message):
 @Client.on_message(filters.private)
 async def capture_suffix_prefix(client, message):
     user_id = message.from_user.id
-
-    # Suffix flow
     if "suffix_set" in bot_data and user_id in bot_data["suffix_set"]:
         session = bot_data["suffix_set"][user_id]
         channel_id = session["channel_id"]
@@ -691,7 +689,6 @@ async def capture_replace_words(client, message):
     channel_id = session["channel_id"]
     instr_msg_id = session.get("instr_msg_id")
 
-    # Cancel
     if message.text and message.text.strip().lower() == "/cancel":
         try:
             await message.delete()
@@ -708,7 +705,6 @@ async def capture_replace_words(client, message):
         await message.reply_text("Please send replace pairs in the expected format.")
         return
 
-    # Save to DB as raw text (we'll parse when applying)
     try:
         await set_replace_words(channel_id, text)
     except Exception as e:
