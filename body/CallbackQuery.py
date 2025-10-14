@@ -91,8 +91,8 @@ async def set_caption_menu(client, query):
     caption_display = f"📝 **Current Caption:**\n{current_caption}" if current_caption else "📝 **Current Caption:** None set yet."
 
     buttons = [
-        [InlineKeyboardButton("🆕 Set Caption", callback_data=f"setcapmsg_{channel_id}")],
-        [InlineKeyboardButton("❌ Delete Caption", callback_data=f"delcap_{channel_id}")],
+        [InlineKeyboardButton("🆕 Set Caption", callback_data=f"setcapmsg_{channel_id}"),
+         InlineKeyboardButton("❌ Delete Caption", callback_data=f"delcap_{channel_id}")],
         [InlineKeyboardButton("🔤 Caption Font", callback_data=f"capfont_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
     ]
@@ -117,11 +117,11 @@ async def set_caption_message(client, query):
         text=(
             "📌 Send me the caption for this channel.\n\n"
             "You can use these placeholders:\n"
-            "{file_name} - File name\n"
-            "{file_size} - File size\n"
-            "{default_caption} - Original caption\n"
-            "{language} - Language\n"
-            "{year} - Year\n\n"
+            "<code>{file_name}</code> - File name\n"
+            "<code>{file_size}</code> - File size\n"
+            "<code>{default_caption}</code> - Original caption\n"
+            "<code>{language}</code> - Language\n"
+            "<code>{year}</code> - Year\n\n"
         ),
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
@@ -165,8 +165,8 @@ async def set_words_menu(client, query):
     words_text = ", ".join(blocked_words) if blocked_words else "No blocked words set."
 
     buttons = [
-        [InlineKeyboardButton("📝 Set Block Words", callback_data=f"addwords_{channel_id}")],
-        [InlineKeyboardButton("🗑️ Delete Block Words", callback_data=f"delwords_{channel_id}")],
+        [InlineKeyboardButton("📝 Set Block Words", callback_data=f"addwords_{channel_id}"),
+         InlineKeyboardButton("🗑️ Delete Block Words", callback_data=f"delwords_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
     ]
 
@@ -175,17 +175,23 @@ async def set_words_menu(client, query):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-@Client.on_callback_query(filters.regex(r"^addwords_(-?\d+)$"))
-async def add_block_words(client, query):
+@Client.on_callback_query(filters.regex(r'^addwords_(-?\d+)$'))
+async def set_block_words_message(client, query):
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
+    await safe_delete(query.message)
 
-    bot_data.setdefault("block_words_set", {})[user_id] = {"channel_id": channel_id}
-    msg = await query.message.edit_text(
-        "✏️ Send the words you want to block (use comma to separate words).\n"
-        "Use /cancel to cancel this process."
+    instr = await client.send_message(
+        chat_id=user_id,
+        text="🚫 Send blocked words (separated by commas).\n\nUse /cancel to abort.",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
+        )
     )
-    bot_data["block_words_set"][user_id]["instr_msg_id"] = msg.id
+    bot_data.setdefault("block_set", {})[user_id] = {
+        "channel_id": channel_id,
+        "instr_msg_id": instr.id
+    }
 
 @Client.on_callback_query(filters.regex(r"^delwords_(-?\d+)$"))
 async def delete_blocked_words(client, query):
@@ -209,7 +215,7 @@ async def suffix_prefix_menu(client, query):
         [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
     ]
 
-    text = f"📌 Channel: {channel_id}\n\nCurrent Suffix: {suffix or 'None'}\nCurrent Prefix: {prefix or 'None'}"
+    text = f"📌 Channel: {chat_title}\n\nCurrent Suffix: {suffix or 'None'}\nCurrent Prefix: {prefix or 'None'}"
     try:
         await query.message.delete()
     except Exception:
@@ -278,31 +284,34 @@ async def replace_words_menu(client, query):
     replace_words = await get_replace_words(channel_id)  
 
     buttons = [
-        [InlineKeyboardButton("📝 Set Replace Words", callback_data=f"do_replace_{channel_id}")],
-        [InlineKeyboardButton("❌ Delete Replace Words", callback_data=f"del_replace_{channel_id}")],
+        [InlineKeyboardButton("📝 Set Replace Words", callback_data=f"do_replace_{channel_id}"),
+         InlineKeyboardButton("❌ Delete Replace Words", callback_data=f"del_replace_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
     ]
 
-    text = f"📢 **Channel:** {channel_id}\n\n"
+    text = f"📢 **Channel:** {chat_title}\n\n"
     text += "🔄 **Current Replace Words:**\n"
     text += f"{replace_words if replace_words else 'None'}"
 
     await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex(r'^do_replace_(-?\d+)$'))
-async def set_replace_words_start(client, query):
+async def set_replace_message(client, query):
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
-
     await safe_delete(query.message)
-    msg = await client.send_message(user_id, 
-        "✏️ Send multiple replacement pairs in this format:\n"
-        "`old_word new_word, another_old another_new`\n"
-        "Use /cancel to cancel the process."
+
+    instr = await client.send_message(
+        chat_id=user_id,
+        text="🧩 Send replace words (format: old1:new1, old2:new2, ...)\n\nUse /cancel to abort.",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
+        )
     )
-
-    bot_data.setdefault("replace_words_set", {})[user_id] = {"channel_id": channel_id, "instr_msg_id": msg.id}
-
+    bot_data.setdefault("replace_set", {})[user_id] = {
+        "channel_id": channel_id,
+        "instr_msg_id": instr.id
+    }
 @Client.on_callback_query(filters.regex(r'^del_replace_(-?\d+)$'))
 async def delete_replace_words(client, query):
     channel_id = int(query.matches[0].group(1))
