@@ -23,54 +23,81 @@ bot_data = {
 async def when_added_as_admin(client, chat_member_update):
     try:
         chat = chat_member_update.chat
-        new_member = chat_member_update.new_chat_member
-        old_member = chat_member_update.old_chat_member
+        new_member = getattr(chat_member_update, "new_chat_member", None)
         from_user = getattr(chat_member_update, "from_user", None)
 
-        # Only proceed if update involves the bot
+        # Only interested if update is about the bot itself
         if not new_member or not new_member.user or not new_member.user.is_self:
             return
 
-        user_id = getattr(from_user, "id", None)
-        if not user_id:
-            print(f"[INFO] Added to {chat.title} ({chat.id}) — no from_user found.")
-            return  # Skip if we can't identify who added the bot
+        # Resolve a user_id to associate this channel with
+        user_id = None
+        if from_user and getattr(from_user, "id", None):
+            user_id = from_user.id
 
-        # Save channel under user id (always, regardless of bot’s role)
-        await insert_user(user_id)
-        await add_user_channel(user_id, chat.id, chat.title or "Unnamed Channel")
+        # If no from_user provided, try to find channel creator / admin
+        if user_id is None:
+            try:
+                admins = await client.get_chat_members(chat.id, filter="administrators")
+                # prefer creator, then first non-bot admin
+                creator_id = None
+                fallback_admin_id = None
+                for adm in admins:
+                    adm_user = getattr(adm, "user", None)
+                    if not adm_user:
+                        continue
+                    if getattr(adm, "status", "") in ("creator",):
+                        creator_id = adm_user.id
+                        break
+                    if not adm_user.is_bot and fallback_admin_id is None:
+                        fallback_admin_id = adm_user.id
+                user_id = creator_id or fallback_admin_id
+            except Exception:
+                user_id = None
 
-        # Create base settings if not already present
-        existing = await get_channel_caption(chat.id)
-        if not existing:
-            await addCap(chat.id, DEF_CAP)
-            await set_block_words(chat.id, [])
-            await set_prefix(chat.id, "")
-            await set_suffix(chat.id, "")
-            await set_replace_words(chat.id, "")
-            await set_link_remover_status(chat.id, False)
+        # Last resort: use DEFAULT_ADMIN_ID from info.py (ensure you set it)
+        if user_id is None:
+            try:
+                user_id = DEFAULT_ADMIN_ID
+            except NameError:
+                user_id = None
 
-        # Notify user only if bot is admin (optional)
+        # If we still don't have a user_id, log and return
+        if user_id is None:
+            print(f"[WARN] Cannot resolve owner for channel {chat.id} ({chat.title}). Channel saved nowhere.")
+            return
+
+        # Persist user (ensure document exists) and save channel under that user
         try:
-            member_status = getattr(new_member, "status", "")
-            if member_status in ("administrator", "creator"):
-                await client.send_message(
-                    user_id,
-                    f"✅ Bot added to <b>{chat.title}</b> and linked to your account.\n"
-                    "You can manage it from /settings anytime."
-                )
-            else:
-                await client.send_message(
-                    user_id,
-                    f"📌 Bot added to <b>{chat.title}</b> (not admin yet).\n"
-                    "Grant admin permission for full access."
-                )
+            await insert_user(user_id)
+            await add_user_channel(user_id, chat.id, chat.title or "Unnamed Channel")
         except Exception as e:
-            print(f"[WARN] Could not send confirmation message to user {user_id}: {e}")
+            print(f"[ERROR] DB save failed for channel {chat.id}: {e}")
+
+        # Ensure default channel settings exist
+        try:
+            if not await get_channel_caption(chat.id):
+                await addCap(chat.id, DEF_CAP)
+                await set_block_words(chat.id, [])
+                await set_prefix(chat.id, "")
+                await set_suffix(chat.id, "")
+                await set_replace_words(chat.id, "")
+                await set_link_remover_status(chat.id, False)
+        except Exception as e:
+            print(f"[ERROR] Initializing defaults for {chat.id}: {e}")
+
+        # Send a friendly DM to the resolved user
+        try:
+            await client.send_message(
+                user_id,
+                f"✅ Bot added to <b>{chat.title or chat.id}</b>.\n\n You can manage it from /settings anytime.",
+                parse_mode="html"
+            )
+        except Exception as e:
+            print(f"[WARN] Could not DM user {user_id} about channel {chat.id}: {e}")
 
     except Exception as e:
         print(f"[ERROR] when_added_as_admin: {e}")
-
 
 
 def _is_admin_member(member):
