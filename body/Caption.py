@@ -22,30 +22,27 @@ bot_data = {
 @Client.on_chat_member_updated()
 async def when_added_as_admin(client, chat_member_update):
     try:
-        new = chat_member_update.new_chat_member
-        old = chat_member_update.old_chat_member
         chat = chat_member_update.chat
+        new_member = chat_member_update.new_chat_member
+        old_member = chat_member_update.old_chat_member
+        from_user = getattr(chat_member_update, "from_user", None)
 
-        # Only handle promotion of the bot itself
-        if not new or not new.user or not new.user.is_self:
+        # Only proceed if update involves the bot
+        if not new_member or not new_member.user or not new_member.user.is_self:
             return
-        if old and old.status == "administrator":
-            return  # already admin before
 
-        # Find owner (user who added bot)
-        owner = getattr(chat_member_update, "from_user", None)
-        owner_id = getattr(owner, "id", None)
+        user_id = getattr(from_user, "id", None)
+        if not user_id:
+            print(f"[INFO] Added to {chat.title} ({chat.id}) — no from_user found.")
+            return  # Skip if we can't identify who added the bot
 
-        if not owner_id:
-            # Fallback: use a default ID or skip sending confirmation
-            print(f"[INFO] Bot added manually to {chat.title} ({chat.id}) without from_user.")
-            owner_id = DEFAULT_ADMIN_ID  # or skip sending DM
+        # Save channel under user id (always, regardless of bot’s role)
+        await insert_user(user_id)
+        await add_user_channel(user_id, chat.id, chat.title or "Unnamed Channel")
 
-        # Save channel data
-        await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
-
-        # Ensure base settings exist
-        if not await get_channel_caption(chat.id):
+        # Create base settings if not already present
+        existing = await get_channel_caption(chat.id)
+        if not existing:
             await addCap(chat.id, DEF_CAP)
             await set_block_words(chat.id, [])
             await set_prefix(chat.id, "")
@@ -53,19 +50,27 @@ async def when_added_as_admin(client, chat_member_update):
             await set_replace_words(chat.id, "")
             await set_link_remover_status(chat.id, False)
 
-        # Try sending confirmation
-        if owner_id and owner_id != DEFAULT_ADMIN_ID:
-            try:
+        # Notify user only if bot is admin (optional)
+        try:
+            member_status = getattr(new_member, "status", "")
+            if member_status in ("administrator", "creator"):
                 await client.send_message(
-                    owner_id,
-                    f"✅ Bot successfully added to <b>{chat.title}</b> as admin!\n"
-                    "Channel linked to your account — use /settings to manage."
+                    user_id,
+                    f"✅ Bot added to <b>{chat.title}</b> and linked to your account.\n"
+                    "You can manage it from /settings anytime."
                 )
-            except Exception as e:
-                print(f"[WARN] Could not send confirmation message: {e}")
+            else:
+                await client.send_message(
+                    user_id,
+                    f"📌 Bot added to <b>{chat.title}</b> (not admin yet).\n"
+                    "Grant admin permission for full access."
+                )
+        except Exception as e:
+            print(f"[WARN] Could not send confirmation message to user {user_id}: {e}")
 
     except Exception as e:
         print(f"[ERROR] when_added_as_admin: {e}")
+
 
 
 def _is_admin_member(member):
