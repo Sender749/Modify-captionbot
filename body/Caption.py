@@ -4,7 +4,7 @@ import os
 import sys
 import traceback
 from typing import Tuple, List, Dict, Optional
-from pyrogram import Client, filters, errors
+from pyrogram import Client, filters, errors, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import ChatAdminRequired, RPCError
 from pyrogram import enums
@@ -21,88 +21,93 @@ bot_data = {
 }
 
 
-# Caption.py — replace existing when_added_as_admin with this:
 @Client.on_chat_member_updated()
-async def when_added_as_admin(client, event):
-    """Triggered whenever bot’s admin status changes in a channel"""
+async def detect_bot_added(client, event: ChatMemberUpdated):
+    """Trigger when bot is added, removed, or re-added to a channel"""
     try:
         new = event.new_chat_member
         old = event.old_chat_member
         chat = event.chat
 
-        # Only handle channels
-        if getattr(chat, "type", "") != "channel":
+        if not chat or getattr(chat, "type", "") != "channel":
             return
-
-        # Only proceed if the update is about the bot itself
         if not new or not new.user or not new.user.is_self:
             return
 
-        # If bot just became administrator (previously wasn't admin)
-        was_admin_before = bool(old and getattr(old, "status", "") in ("administrator", "creator", "owner"))
-        is_admin_now = getattr(new, "status", "") in ("administrator", "creator", "owner")
-        if not was_admin_before and is_admin_now:
-            # Try get who added/promoted the bot
-            owner = getattr(event, "from_user", None)
-            owner_id = getattr(owner, "id", None)
+        # Detect if bot is now admin
+        is_admin_now = str(getattr(new, "status", "")).lower() in ("administrator", "creator", "owner")
 
-            # If missing, attempt to find channel creator from admins list
+        # Trigger for:
+        # - New addition
+        # - Re-addition
+        # - Promotion to admin
+        if is_admin_now:
+            owner_id = getattr(event.from_user, "id", None)
+
+            # Try to find the channel creator if not available
             if not owner_id:
                 try:
                     admins = await client.get_chat_members(chat.id, filter=enums.ChatMembersFilter.ADMINISTRATORS)
-                    # find the creator
-                    creator_id = None
                     for adm in admins:
-                        try:
-                            st = getattr(adm, "status", "")
-                            # pyrogram ChatMember objects may carry 'status' or nested
-                            if str(st).lower() in ("creator", "owner"):
-                                creator_id = adm.user.id
-                                break
-                        except Exception:
-                            continue
-                    if creator_id:
-                        owner_id = creator_id
-                except Exception as e:
-                    # we couldn't find an owner; fall back to None and skip DM but still save channel
-                    print(f"[WARN] Could not fetch channel admins for owner resolution: {e}")
+                        if str(getattr(adm, "status", "")).lower() in ("creator", "owner"):
+                            owner_id = adm.user.id
+                            break
+                except Exception:
+                    owner_id = None
 
-            # If still no owner id, we will still register the channel (can't DM owner)
+            # Save to DB
+            await addCap(chat.id, DEF_CAP)
+            await set_block_words(chat.id, [])
+            await set_prefix(chat.id, "")
+            await set_suffix(chat.id, "")
+            await set_replace_words(chat.id, "")
+            await set_link_remover_status(chat.id, False)
+
+            # Register user-channel relation
             if owner_id:
                 await insert_user(owner_id)
                 await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
-            else:
-                # fallback: do nothing with users collection, but still ensure caption/settings exist
-                print(f"[INFO] Bot added to channel {chat.title} ({chat.id}) but owner id unknown. Channel saved without owner mapping.")
 
-            # Ensure channel settings exist
-            existing = await get_channel_caption(chat.id)
-            if not existing:
-                await addCap(chat.id, DEF_CAP)
-                await set_block_words(chat.id, [])
-                await set_prefix(chat.id, "")
-                await set_suffix(chat.id, "")
-                await set_replace_words(chat.id, "")
-                await set_link_remover_status(chat.id, False)
-
-            # Send a DM to owner if we have owner_id and it's not a placeholder/default
-            if owner_id:
+                # Send DM
                 try:
                     await client.send_message(
                         owner_id,
-                        f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime from /settings."
+                        f"✅ Bot added (or re-added) to <b>{chat.title}</b>.\nYou can manage it anytime from /settings."
                     )
                 except Exception as e:
-                    # Could not send DM (blocked user, privacy, etc.)
-                    print(f"[INFO] Could not DM owner ({owner_id}) for channel {chat.id}: {e}")
+                    print(f"[WARN] Could not DM owner {owner_id}: {e}")
 
-            print(f"[OK] Registered channel {chat.title} ({chat.id}) in DB for owner {owner_id}")
+            print(f"[INFO] Bot added or re-added to channel {chat.title} ({chat.id})")
 
-    except Exception as exc:
+    except Exception as e:
         import traceback
-        print("Error in when_added_as_admin:\n", traceback.format_exc())
+        print(f"[ERROR] detect_bot_added: {traceback.format_exc()}")
 
+@Client.on_start()
+async def startup_check(client):
+    """On bot startup, check all channels where bot is admin."""
+    await asyncio.sleep(3)
+    print("[INFO] Scanning for channels where bot is admin...")
+    async for dialog in client.get_dialogs():
+        chat = dialog.chat
+        try:
+            if getattr(chat, "type", "") == "channel":
+                member = await client.get_chat_member(chat.id, "me")
+                if str(member.status).lower() in ("administrator", "creator", "owner"):
+                    existing = await get_channel_caption(chat.id)
+                    if not existing:
+                        await addCap(chat.id, DEF_CAP)
+                        await set_block_words(chat.id, [])
+                        await set_prefix(chat.id, "")
+                        await set_suffix(chat.id, "")
+                        await set_replace_words(chat.id, "")
+                        await set_link_remover_status(chat.id, False)
+                    print(f"[INIT] Found existing channel: {chat.title} ({chat.id})")
+        except Exception:
+            continue
+    print("[INFO] Channel scan completed.")
 
+        
 
 # ---------------- Commands ----------------
 @Client.on_message(filters.command("start") & filters.private)
