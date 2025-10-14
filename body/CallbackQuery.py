@@ -171,7 +171,7 @@ async def set_words_menu(client, query):
     ]
 
     await query.message.edit_text(
-        f"📛 **Channel:** `{channel_id}`\n\n🚫 **Blocked Words:**\n{words_text}",
+        f"📛 **Channel:** `{channel_title}`\n\n🚫 **Blocked Words:**\n{words_text}",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
