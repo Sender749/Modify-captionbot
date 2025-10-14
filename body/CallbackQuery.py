@@ -188,7 +188,7 @@ async def set_block_words_message(client, query):
             [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
         )
     )
-    bot_data.setdefault("block_set", {})[user_id] = {
+    bot_data.setdefault("block_words_set", {})[user_id] = {
         "channel_id": channel_id,
         "instr_msg_id": instr.id
     }
@@ -308,7 +308,7 @@ async def set_replace_message(client, query):
             [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
         )
     )
-    bot_data.setdefault("replace_set", {})[user_id] = {
+    bot_data.setdefault("replace_words_set", {})[user_id] = {
         "channel_id": channel_id,
         "instr_msg_id": instr.id
     }
