@@ -177,19 +177,23 @@ async def set_words_menu(client, query):
 async def set_block_words_message(client, query):
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
-    await safe_delete(query.message)
+
+    try:
+        await safe_delete(query.message)
+    except Exception:
+        pass
 
     instr = await client.send_message(
         chat_id=user_id,
-        text="🚫 Send blocked words (separated by commas).\n\nUse /cancel to abort.",
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
-        )
+        text="🚫 Send blocked words for this channel (separate words with commas or newlines).\n\nSend /cancel to abort.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"setwords_{channel_id}")]])
     )
+
     bot_data.setdefault("block_words_set", {})[user_id] = {
         "channel_id": channel_id,
         "instr_msg_id": instr.id
     }
+
 
 @Client.on_callback_query(filters.regex(r"^delwords_(-?\d+)$"))
 async def delete_blocked_words(client, query):
