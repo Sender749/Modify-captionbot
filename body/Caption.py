@@ -23,27 +23,29 @@ bot_data = {
 async def when_added_as_admin(client, chat_member_update):
     try:
         new = chat_member_update.new_chat_member
+        old = chat_member_update.old_chat_member
         chat = chat_member_update.chat
 
-        # Only proceed if the bot itself is promoted
-        if not new.user or not new.user.is_self:
+        # Only handle promotion of the bot itself
+        if not new or not new.user or not new.user.is_self:
             return
+        if old and old.status == "administrator":
+            return  # already admin before
 
-        # Determine who added the bot (owner)
+        # Find owner (user who added bot)
         owner = getattr(chat_member_update, "from_user", None)
         owner_id = getattr(owner, "id", None)
 
-        # If added manually and no from_user, fallback to a default admin
-        if owner_id is None:
-            print(f"Bot manually added to channel: {chat.title} ({chat.id})")
-            owner_id = DEFAULT_ADMIN_ID  # Replace with your Telegram ID
+        if not owner_id:
+            # Fallback: use a default ID or skip sending confirmation
+            print(f"[INFO] Bot added manually to {chat.title} ({chat.id}) without from_user.")
+            owner_id = DEFAULT_ADMIN_ID  # or skip sending DM
 
-        # Save channel to DB
+        # Save channel data
         await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
 
-        # Ensure channel settings exist
-        existing_settings = await get_channel_caption(chat.id)
-        if not existing_settings:
+        # Ensure base settings exist
+        if not await get_channel_caption(chat.id):
             await addCap(chat.id, DEF_CAP)
             await set_block_words(chat.id, [])
             await set_prefix(chat.id, "")
@@ -51,18 +53,20 @@ async def when_added_as_admin(client, chat_member_update):
             await set_replace_words(chat.id, "")
             await set_link_remover_status(chat.id, False)
 
-        # Send confirmation to owner
-        try:
-            await client.send_message(
-                owner_id,
-                f"✅ Successfully added to <b>{chat.title}</b> as admin!\n"
-                "All previous settings restored (if any)."
-            )
-        except Exception as e:
-            print(f"Could not send confirmation message: {e}")
+        # Try sending confirmation
+        if owner_id and owner_id != DEFAULT_ADMIN_ID:
+            try:
+                await client.send_message(
+                    owner_id,
+                    f"✅ Bot successfully added to <b>{chat.title}</b> as admin!\n"
+                    "Channel linked to your account — use /settings to manage."
+                )
+            except Exception as e:
+                print(f"[WARN] Could not send confirmation message: {e}")
 
     except Exception as e:
-        print(f"Error in when_added_as_admin: {e}")
+        print(f"[ERROR] when_added_as_admin: {e}")
+
 
 def _is_admin_member(member):
     return getattr(member, "status", "") in ("administrator", "creator")
@@ -192,7 +196,7 @@ async def user_settings(client, message):
         ch_title = ch.get("channel_title", str(ch_id))
         try:
             member = await client.get_chat_member(ch_id, "me")
-            if _is_admin_member(member):
+            if member.status in ("administrator", "creator"):
                 try:
                     chat = await client.get_chat(ch_id)
                     ch_title = getattr(chat, "title", ch_title)
@@ -200,23 +204,27 @@ async def user_settings(client, message):
                     pass
                 valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
             else:
-                # Bot lost admin, remove from DB
-                await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
                 removed_titles.append(ch_title)
-        except Exception:
-            await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
+        except ChatAdminRequired:
             removed_titles.append(ch_title)
+        except Exception as e:
+            print(f"[WARN] Skipping {ch_id}: {e}")
+            continue  # Don't remove unless verified non-admin
 
+    # Inform if removed
     if removed_titles:
         removed_text = "• " + "\n• ".join(removed_titles)
         await message.reply_text(
-            f"⚠️ Some channels were removed from your list because I lost access or admin rights:\n\n{removed_text}"
+            f"⚠️ Lost admin access in these channels (please re-add if needed):\n\n{removed_text}"
         )
 
     if not valid_channels:
         return await message.reply_text("No active channels found where I am still admin.")
 
-    buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
+    buttons = [
+        [InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")]
+        for ch in valid_channels
+    ]
     await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_message(filters.command("reset") & filters.user(ADMIN))
