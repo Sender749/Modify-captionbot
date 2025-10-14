@@ -2,9 +2,11 @@ import asyncio
 import re
 import os
 import sys
+import traceback
 from typing import Tuple, List, Dict, Optional
 from pyrogram import Client, filters, errors
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.errors import ChatAdminRequired, RPCError
 from pyrogram import enums
 from info import *
 from Script import script
@@ -20,88 +22,51 @@ bot_data = {
 
 
 @Client.on_chat_member_updated()
-async def when_added_as_admin(client, chat_member_update):
+async def when_added_as_admin(client, event):
+    """Triggered whenever bot’s admin status changes in a channel"""
     try:
-        chat = chat_member_update.chat
-        new_member = getattr(chat_member_update, "new_chat_member", None)
-        from_user = getattr(chat_member_update, "from_user", None)
+        new = event.new_chat_member
+        old = event.old_chat_member
+        chat = event.chat
 
-        # Only interested if update is about the bot itself
-        if not new_member or not new_member.user or not new_member.user.is_self:
+        # Only handle channels (not groups, supergroups, etc.)
+        if chat.type not in ("channel",):
             return
 
-        # Resolve a user_id to associate this channel with
-        user_id = None
-        if from_user and getattr(from_user, "id", None):
-            user_id = from_user.id
-
-        # If no from_user provided, try to find channel creator / admin
-        if user_id is None:
-            try:
-                admins = await client.get_chat_members(chat.id, filter="administrators")
-                # prefer creator, then first non-bot admin
-                creator_id = None
-                fallback_admin_id = None
-                for adm in admins:
-                    adm_user = getattr(adm, "user", None)
-                    if not adm_user:
-                        continue
-                    if getattr(adm, "status", "") in ("creator",):
-                        creator_id = adm_user.id
-                        break
-                    if not adm_user.is_bot and fallback_admin_id is None:
-                        fallback_admin_id = adm_user.id
-                user_id = creator_id or fallback_admin_id
-            except Exception:
-                user_id = None
-
-        # Last resort: use DEFAULT_ADMIN_ID from info.py (ensure you set it)
-        if user_id is None:
-            try:
-                user_id = DEFAULT_ADMIN_ID
-            except NameError:
-                user_id = None
-
-        # If we still don't have a user_id, log and return
-        if user_id is None:
-            print(f"[WARN] Cannot resolve owner for channel {chat.id} ({chat.title}). Channel saved nowhere.")
+        # Only handle when bot itself is added or promoted
+        if not new or not new.user or not new.user.is_self:
             return
 
-        # Persist user (ensure document exists) and save channel under that user
-        try:
-            await insert_user(user_id)
-            await add_user_channel(user_id, chat.id, chat.title or "Unnamed Channel")
-        except Exception as e:
-            print(f"[ERROR] DB save failed for channel {chat.id}: {e}")
+        # Detect if bot got admin rights now
+        if (not old or old.status != "administrator") and new.status == "administrator":
+            owner = getattr(event, "from_user", None)
+            owner_id = getattr(owner, "id", None)
 
-        # Ensure default channel settings exist
-        try:
-            if not await get_channel_caption(chat.id):
-                await addCap(chat.id, DEF_CAP)
-                await set_block_words(chat.id, [])
-                await set_prefix(chat.id, "")
-                await set_suffix(chat.id, "")
-                await set_replace_words(chat.id, "")
-                await set_link_remover_status(chat.id, False)
-        except Exception as e:
-            print(f"[ERROR] Initializing defaults for {chat.id}: {e}")
+            # Fallback: If no from_user (bot added manually)
+            if not owner_id:
+                # You can choose to skip or use a default admin ID
+                print(f"⚠️ Added manually to {chat.title} ({chat.id}), could not detect owner.")
+                return
 
-        # Send a friendly DM to the resolved user
-        try:
-            await client.send_message(
-                user_id,
-                f"✅ Bot added to <b>{chat.title or chat.id}</b>.\n\n You can manage it from /settings anytime.",
-                parse_mode="html"
-            )
-        except Exception as e:
-            print(f"[WARN] Could not DM user {user_id} about channel {chat.id}: {e}")
+            # Ensure user exists
+            await insert_user(owner_id)
+
+            # Add to DB
+            await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
+
+            # Confirm to user
+            try:
+                await client.send_message(
+                    owner_id,
+                    f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime from /settings.",
+                )
+            except Exception as e:
+                print(f"Error sending confirmation message: {e}")
+
+            print(f"✅ Bot added as admin to {chat.title} ({chat.id}) for user {owner_id}")
 
     except Exception as e:
-        print(f"[ERROR] when_added_as_admin: {e}")
-
-
-def _is_admin_member(member):
-    return getattr(member, "status", "") in ("administrator", "creator")
+        print(f"❌ Error in when_added_as_admin:\n{traceback.format_exc()}")
 
 
 # ---------------- Commands ----------------
@@ -215,7 +180,6 @@ async def restart_bot(client, message):
 async def user_settings(client, message):
     user_id = message.from_user.id
     channels = await get_user_channels(user_id)
-    print("Channels from DB:", channels)
 
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
@@ -231,32 +195,33 @@ async def user_settings(client, message):
             if member.status in ("administrator", "creator"):
                 try:
                     chat = await client.get_chat(ch_id)
-                    ch_title = getattr(chat, "title", ch_title)
-                except Exception:
+                    ch_title = chat.title or ch_title
+                except:
                     pass
                 valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
             else:
+                # Bot no longer admin — remove it
+                await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
                 removed_titles.append(ch_title)
-        except ChatAdminRequired:
+        except RPCError:
+            await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
             removed_titles.append(ch_title)
-        except Exception as e:
-            print(f"[WARN] Skipping {ch_id}: {e}")
-            continue  # Don't remove unless verified non-admin
 
-    # Inform if removed
+    # Notify about removals
     if removed_titles:
         removed_text = "• " + "\n• ".join(removed_titles)
-        await message.reply_text(
-            f"⚠️ Lost admin access in these channels (please re-add if needed):\n\n{removed_text}"
-        )
+        await message.reply_text(f"⚠️ Removed (no admin access):\n{removed_text}")
 
     if not valid_channels:
-        return await message.reply_text("No active channels found where I am still admin.")
+        return await message.reply_text("No active channels where I am admin.")
 
+    # Show channels list
     buttons = [
         [InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")]
         for ch in valid_channels
     ]
+    buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
+
     await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_message(filters.command("reset") & filters.user(ADMIN))
