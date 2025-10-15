@@ -25,13 +25,12 @@ async def when_added_as_admin(client, chat_member_update):
     try:
         new = chat_member_update.new_chat_member
         chat = chat_member_update.chat
-        if not new.user or not new.user.is_self:
+        if not new or not getattr(new, "user", None) or not new.user.is_self:
             return
         owner = getattr(chat_member_update, "from_user", None)
         if not owner:
-            print(f"[INFO] Added manually to: {chat.title}")
+            print(f"[INFO] Bot added manually to: {chat.title}")
             return
-
         owner_id = owner.id
         owner_name = owner.first_name
         await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
@@ -43,6 +42,7 @@ async def when_added_as_admin(client, chat_member_update):
             await set_suffix(chat.id, "")
             await set_replace_words(chat.id, "")
             await set_link_remover_status(chat.id, False)
+
         try:
             await client.send_message(
                 owner_id,
@@ -163,15 +163,14 @@ async def user_settings(client, message):
             else:
                 await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
                 removed_titles.append(ch_title)
-        except ChatAdminRequired:
+
+        except (ChatAdminRequired, errors.RPCError) as e:
+            print(f"[INFO] Removing inaccessible channel {ch_id}: {e}")
             await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
             removed_titles.append(ch_title)
-        except RPCError as e:
-            print(f"[WARN] RPC error checking channel {ch_id}: {e}")
-            valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
+
         except Exception as ex:
             print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
-            # skip deletion to avoid accidental removal for transient issues
             valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
 
     if removed_titles:
@@ -184,7 +183,7 @@ async def user_settings(client, message):
     buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
     await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
-
+    
 @Client.on_message(filters.command("reset") & filters.user(ADMIN))
 async def reset_db(client, message):
     await message.reply_text("⚠️ This will delete all users, channels, captions, and settings from the database.\nProcessing...")
