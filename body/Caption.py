@@ -362,9 +362,14 @@ def apply_block_words(text: str, blocked: List[str]) -> str:
     return safe_text
 
 
-def parse_replace_pairs(raw: str):
+def parse_replace_pairs(raw):
     if not raw:
         return []
+    # Convert list -> string (joined by commas)
+    if isinstance(raw, list):
+        raw = ','.join(map(str, raw))
+    elif not isinstance(raw, str):
+        raw = str(raw)
     raw = raw.replace('\n', ',')
     items = [p.strip() for p in raw.split(',') if p.strip()]
     pairs = []
