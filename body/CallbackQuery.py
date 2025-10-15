@@ -108,6 +108,8 @@ async def set_caption_menu(client, query):
 async def set_caption_message(client, query):
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
+    if "caption_set" in bot_data and user_id in bot_data["caption_set"]:
+        bot_data["caption_set"].pop(user_id, None)
     await safe_delete(query.message)
 
     instr = await client.send_message(
