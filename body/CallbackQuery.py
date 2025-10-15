@@ -321,12 +321,12 @@ async def set_replace_menu(client, query):
 
     replace_dict = await get_replace_words(channel_id)
     replace_text = "None set yet."
-    
-    if replace_data:
-        if isinstance(replace_data, dict):
-            replace_text = "\n".join(f"{old} → {new}" for old, new in replace_data.items())
-        elif isinstance(replace_data, list):
-            replace_text = "\n".join(f"{pair[0]} → {pair[1]}" for pair in replace_data if len(pair) == 2)
+
+    if replace_dict:
+        if isinstance(replace_dict, dict):
+            replace_text = "\n".join(f"{old} → {new}" for old, new in replace_dict.items())
+        elif isinstance(replace_dict, list):
+            replace_text = "\n".join(f"{pair[0]} → {pair[1]}" for pair in replace_dict if len(pair) == 2)
 
     text = (
         f"📛 **Channel:** {chat_title}\n\n"
