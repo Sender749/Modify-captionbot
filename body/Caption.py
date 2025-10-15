@@ -444,9 +444,10 @@ async def capture_user_input(client, message):
         instr_msg_id = session.get("instr_msg_id")
         pairs = parse_replace_pairs(text)
         if pairs:
-            await set_replace_words(channel_id, pairs)  
+            await set_replace_words(channel_id, pairs)
+            formatted_pairs = [f"{old} → {new}" for old, new in pairs]
             buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
-            await client.send_message(user_id,f"✅ Blocked words updated!\n🚫 {', '.join(words)}",reply_markup=InlineKeyboardMarkup(buttons))
+            await client.send_message(user_id,f"✅ Replace words updated!\n🚫 {', '.join(formatted_pairs)}",reply_markup=InlineKeyboardMarkup(buttons))
         bot_data["replace_words_set"].pop(user_id, None)
         try:
             await client.delete_messages(user_id, [message.id, instr_msg_id])
