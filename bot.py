@@ -16,6 +16,7 @@ class Bot(Client):
     async def start(self):
         await super().start()
         me = await self.get_me()
+        await startup_check(self)   
         self.force_channel = FORCE_SUB
         if FORCE_SUB:
             try:
