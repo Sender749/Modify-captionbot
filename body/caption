@@ -1,195 +1,87 @@
-# ---------------- Interactive flows (capture handlers) ----------------
-@Client.on_message(filters.private)
-async def capture_caption(client, message):
-    user_id = message.from_user.id
-    if "caption_set" not in bot_data or user_id not in bot_data["caption_set"]:
-        return
-
-    session = bot_data["caption_set"][user_id]
-    channel_id = session["channel_id"]
-    instr_msg_id = session.get("instr_msg_id")
-    caption_text = message.text or message.caption or ""
-    caption_text = caption_text.strip() if isinstance(caption_text, str) else ""
-
-    if not caption_text:
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        await client.send_message(user_id, "❌ Please send valid caption text (plain text only).")
-        return
-
+@Client.on_chat_member_updated()
+async def when_added_as_admin(client, chat_member_update):
     try:
-        existing = await get_channel_caption(channel_id)
-        if existing:
-            await updateCap(channel_id, caption_text)
-        else:
-            await addCap(channel_id, caption_text)
-    except Exception as e:
-        print("Error saving caption:", e)
-
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    if instr_msg_id:
-        try:
-            await client.delete_messages(chat_id=user_id, message_ids=instr_msg_id)
-        except Exception:
-            pass
-
-    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
-    try:
-        await client.send_message(
-            user_id,
-            "✅ Caption successfully updated!",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-    except Exception as e:
-        print("Error sending confirmation message:", e)
-
-    bot_data["caption_set"].pop(user_id, None)
-
-
-@Client.on_message(filters.private)
-async def capture_block_words(client, message):
-    user_id = message.from_user.id
-    if user_id not in bot_data.get("block_words_set", {}):
-        return
-
-    session = bot_data["block_words_set"][user_id]
-    channel_id = session["channel_id"]
-    instr_msg_id = session.get("instr_msg_id")
-
-    # Ignore empty messages (Back button already cancels)
-    if not message.text or not message.text.strip():
-        return
-
-    text = message.text.strip()
-    words = [w.strip() for w in re.split(r'[,\n]+', text) if w.strip()]
-
-    if not words:
-        await message.reply_text("⚠️ Please send valid text for blocked words.")
-        return
-
-    try:
-        await set_block_words(channel_id, words)
-    except Exception as e:
-        print("Error saving blocked words:", e)
-
-    # Clean chat
-    try:
-        await client.delete_messages(user_id, [message.id, instr_msg_id])
-    except Exception:
-        pass
-
-    # Confirmation message
-    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setwords_{channel_id}")]]
-    await client.send_message(
-        user_id,
-        f"✅ Blocked words updated successfully!\n\n🚫 {', '.join(words)}",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-    # Remove session
-    bot_data["block_words_set"].pop(user_id, None)
-
-@Client.on_message(filters.private)
-async def capture_suffix_prefix(client, message):
-    user_id = message.from_user.id
-    if "suffix_set" in bot_data and user_id in bot_data["suffix_set"]:
-        session = bot_data["suffix_set"][user_id]
-        channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-
-        if message.text and message.text.strip().lower() == "/cancel":
-            await client.send_message(user_id, "❌ Process canceled.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
-            bot_data["suffix_set"].pop(user_id, None)
-            if instr_msg_id:
-                await client.delete_messages(user_id, instr_msg_id)
+        new = chat_member_update.new_chat_member
+        chat = chat_member_update.chat
+        if not new.user or not new.user.is_self:
+            return
+        owner = getattr(chat_member_update, "from_user", None)
+        if not owner:
+            print(f"[INFO] Added manually to: {chat.title}")
             return
 
-        suffix_text = message.text.strip()
-        await set_suffix(channel_id, suffix_text)
+        owner_id = owner.id
+        owner_name = owner.first_name
+        await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
+        existing = await get_channel_caption(chat.id)
+        if not existing:
+            await addCap(chat.id, DEF_CAP)
+            await set_block_words(chat.id, [])
+            await set_prefix(chat.id, "")
+            await set_suffix(chat.id, "")
+            await set_replace_words(chat.id, "")
+            await set_link_remover_status(chat.id, False)
         try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        await client.send_message(user_id, "✅ Suffix set successfully.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
-        bot_data["suffix_set"].pop(user_id, None)
-        return
+            await client.send_message(
+                owner_id,
+                f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime using /settings.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚙️ Open Settings", callback_data="settings")]
+                ])
+            )
+            print(f"[NEW] Added to {chat.title} by {owner_name} ({owner_id})")
+        except Exception as e:
+            print(f"[WARN] Could not notify user: {e}")
 
-    # Prefix flow
-    if "prefix_set" in bot_data and user_id in bot_data["prefix_set"]:
-        session = bot_data["prefix_set"][user_id]
-        channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-
-        if message.text and message.text.strip().lower() == "/cancel":
-            await client.send_message(user_id, "❌ Process canceled.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
-            bot_data["prefix_set"].pop(user_id, None)
-            if instr_msg_id:
-                await client.delete_messages(user_id, instr_msg_id)
-            return
-
-        prefix_text = message.text.strip()
-        await set_prefix(channel_id, prefix_text)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        await client.send_message(user_id, "✅ Prefix set successfully.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
-        bot_data["prefix_set"].pop(user_id, None)
-        return
-
-
-@Client.on_message(filters.private)
-async def capture_replace_words(client, message):
-    user_id = message.from_user.id
-    if user_id not in bot_data.get("replace_words_set", {}):
-        return
-
-    session = bot_data["replace_words_set"][user_id]
-    channel_id = session["channel_id"]
-    instr_msg_id = session.get("instr_msg_id")
-
-    # Ignore empty messages (Back button already cancels)
-    if not message.text or not message.text.strip():
-        return
-
-    text = message.text.strip()
-    pairs = [pair.strip() for pair in text.split(",") if pair.strip()]
-    replace_dict = {}
-
-    for pair in pairs:
-        parts = pair.split(None, 1)
-        if len(parts) == 2:
-            old, new = parts
-            replace_dict[old] = new
-
-    if not replace_dict:
-        await message.reply_text("⚠️ Invalid format. Use: `old new, another_old another_new`")
-        return
-
-    try:
-        await set_replace_words(channel_id, replace_dict)
     except Exception as e:
-        print("Error saving replace words:", e)
+        print(f"[ERROR] when_added_as_admin: {e}")
 
-    # Clean chat
-    try:
-        await client.delete_messages(user_id, [message.id, instr_msg_id])
-    except Exception:
-        pass
 
-    # Confirmation message
-    buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setreplace_{channel_id}")]]
-    await client.send_message(
-        user_id,
-        f"✅ Replace words updated successfully!\n\n🔤 {', '.join([f'{k}→{v}' for k,v in replace_dict.items()])}",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
 
-    # Remove session
-    bot_data["replace_words_set"].pop(user_id, None)
+@Client.on_message(filters.command("settings") & filters.private)
+async def user_settings(client, message):
+    user_id = message.from_user.id
+    channels = await get_user_channels(user_id)
+
+    if not channels:
+        return await message.reply_text("You haven’t added me to any channels yet!")
+
+    valid_channels = []
+    removed_titles = []
+
+    for ch in channels:
+        ch_id = ch.get("channel_id")
+        ch_title = ch.get("channel_title", str(ch_id))
+        try:
+            member = await client.get_chat_member(ch_id, "me")
+            if _is_admin_member(member):
+                try:
+                    chat = await client.get_chat(ch_id)
+                    ch_title = getattr(chat, "title", ch_title)
+                except Exception:
+                    pass
+                valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
+            else:
+                await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
+                removed_titles.append(ch_title)
+        except ChatAdminRequired:
+            await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
+            removed_titles.append(ch_title)
+        except RPCError as e:
+            print(f"[WARN] RPC error checking channel {ch_id}: {e}")
+            valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
+        except Exception as ex:
+            print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
+            # skip deletion to avoid accidental removal for transient issues
+            valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
+
+    if removed_titles:
+        removed_text = "• " + "\n• ".join(removed_titles)
+        await message.reply_text(f"⚠️ Removed (no admin/access):\n{removed_text}")
+
+    if not valid_channels:
+        return await message.reply_text("No active channels where I am admin.")
+
+    buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
+    buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
+    await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
