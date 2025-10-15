@@ -20,41 +20,31 @@ bot_data = {
     "replace_words_set": {}
 }
 
-
 @Client.on_chat_member_updated()
-async def detect_bot_added(client, event: ChatMemberUpdated):
+async def when_added_as_admin(client, chat_member_update):
     try:
-        new = event.new_chat_member
-        old = event.old_chat_member
-        chat = event.chat
+        new = chat_member_update.new_chat_member
+        chat = chat_member_update.chat
 
-        if not chat or getattr(chat, "type", "") != "channel":
-            return
-        if not new or not new.user or not new.user.is_self:
+        # Proceed only if bot itself is added/promoted
+        if not new.user or not new.user.is_self:
             return
 
-        # Detect if bot is now admin
-        is_admin_now = str(getattr(new, "status", "")).lower() in ("administrator", "creator", "owner")
+        # Determine who added the bot
+        owner = getattr(chat_member_update, "from_user", None)
+        if not owner:
+            print(f"[INFO] Added manually to: {chat.title}")
+            return
 
-        # Trigger for:
-        # - New addition
-        # - Re-addition
-        # - Promotion to admin
-        if is_admin_now:
-            owner_id = getattr(event.from_user, "id", None)
+        owner_id = owner.id
+        owner_name = owner.first_name
 
-            # Try to find the channel creator if not available
-            if not owner_id:
-                try:
-                    admins = await client.get_chat_members(chat.id, filter=enums.ChatMembersFilter.ADMINISTRATORS)
-                    for adm in admins:
-                        if str(getattr(adm, "status", "")).lower() in ("creator", "owner"):
-                            owner_id = adm.user.id
-                            break
-                except Exception:
-                    owner_id = None
+        # Save the channel under user ID
+        await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
 
-            # Save to DB
+        # Initialize default settings if not exist
+        existing = await get_channel_caption(chat.id)
+        if not existing:
             await addCap(chat.id, DEF_CAP)
             await set_block_words(chat.id, [])
             await set_prefix(chat.id, "")
@@ -62,25 +52,22 @@ async def detect_bot_added(client, event: ChatMemberUpdated):
             await set_replace_words(chat.id, "")
             await set_link_remover_status(chat.id, False)
 
-            # Register user-channel relation
-            if owner_id:
-                await insert_user(owner_id)
-                await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
-
-                # Send DM
-                try:
-                    await client.send_message(
-                        owner_id,
-                        f"✅ Bot added (or re-added) to <b>{chat.title}</b>.\nYou can manage it anytime from /settings."
-                    )
-                except Exception as e:
-                    print(f"[WARN] Could not DM owner {owner_id}: {e}")
-
-            print(f"[INFO] Bot added or re-added to channel {chat.title} ({chat.id})")
+        # Send confirmation to the user
+        try:
+            await client.send_message(
+                owner_id,
+                f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime using /settings.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚙️ Open Settings", callback_data="back_channels")]
+                ])
+            )
+            print(f"[NEW] Added to {chat.title} by {owner_name} ({owner_id})")
+        except Exception as e:
+            print(f"[WARN] Could not notify user: {e}")
 
     except Exception as e:
-        import traceback
-        print(f"[ERROR] detect_bot_added: {traceback.format_exc()}")
+        print(f"[ERROR] when_added_as_admin: {e}")
+
 
 @Client.on_start()
 async def startup_check(client):
