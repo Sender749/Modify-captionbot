@@ -25,12 +25,8 @@ async def when_added_as_admin(client, chat_member_update):
     try:
         new = chat_member_update.new_chat_member
         chat = chat_member_update.chat
-
-        # Proceed only if bot itself is added/promoted
         if not new.user or not new.user.is_self:
             return
-
-        # Determine who added the bot
         owner = getattr(chat_member_update, "from_user", None)
         if not owner:
             print(f"[INFO] Added manually to: {chat.title}")
@@ -38,11 +34,7 @@ async def when_added_as_admin(client, chat_member_update):
 
         owner_id = owner.id
         owner_name = owner.first_name
-
-        # Save the channel under user ID
         await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
-
-        # Initialize default settings if not exist
         existing = await get_channel_caption(chat.id)
         if not existing:
             await addCap(chat.id, DEF_CAP)
@@ -51,8 +43,6 @@ async def when_added_as_admin(client, chat_member_update):
             await set_suffix(chat.id, "")
             await set_replace_words(chat.id, "")
             await set_link_remover_status(chat.id, False)
-
-        # Send confirmation to the user
         try:
             await client.send_message(
                 owner_id,
@@ -213,18 +203,12 @@ async def reset_db(client, message):
 # ---------------- Auto Caption core ----------------
 @Client.on_message(filters.channel)
 async def reCap(client, message):
-    """
-    Main auto-caption editing flow when bot detects media in a channel.
-    Applies prefix, suffix, blocked words removal, replacements and link remover.
-    """
     chnl_id = message.chat.id
     default_caption = message.caption or ""
 
-    # Only act on messages that contain media types we care about
     if not message.media:
         return
 
-    # find the media object to get file_name & file_size
     file_name = None
     file_size = None
     for file_type in ("video", "audio", "document", "voice"):
@@ -242,7 +226,6 @@ async def reCap(client, message):
     if not file_name:
         return
 
-    # Fetch configuration from DB (single call if possible)
     cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
     cap_template = cap_doc.get("caption") or DEF_CAP
     link_remover_on = bool(cap_doc.get("link_remover", False))
@@ -251,7 +234,6 @@ async def reCap(client, message):
     prefix = cap_doc.get("prefix", "") or ""
     replace_raw = cap_doc.get("replace_words", None)
 
-    # Build caption from template
     language = extract_language(default_caption)
     year = extract_year(default_caption)
     try:
@@ -263,36 +245,28 @@ async def reCap(client, message):
             year=year
         )
     except Exception as e:
-        # if formatting fails, fallback to default template or the stored raw caption
         print("Caption template format error:", e)
         new_caption = (cap_doc.get("caption") or DEF_CAP)
 
-    # Apply replacements
     replace_pairs = parse_replace_pairs(replace_raw) if replace_raw else []
     if replace_pairs:
         new_caption = apply_replacements(new_caption, replace_pairs)
 
-    # Remove blocked words
     if blocked_words:
         new_caption = apply_block_words(new_caption, blocked_words)
 
-    # Apply link remover behavior
     if link_remover_on:
         # Keep display text from markdown/html links but remove url and mentions
         new_caption = strip_links_and_mentions_keep_text(new_caption)
-    # If link_remover_off we do nothing about links
 
-    # Add prefix & suffix if present
     if prefix:
         new_caption = f"{prefix}\n\n{new_caption}".strip()
     if suffix:
         new_caption = f"{new_caption}\n\n{suffix}".strip()
 
-    # Final cleanup (no duplicate spaces)
     new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
 
     try:
-        # Use same parse_mode as saved caption - stored caption likely contains HTML tags.
         await message.edit_caption(new_caption)
     except errors.FloodWait as e:
         await asyncio.sleep(e.value)
@@ -351,45 +325,31 @@ URL_RE = re.compile(
 )
 
 MENTION_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
-
-# Markdown/HTML link patterns to extract display text: [text](url) and <a href="...">text</a> and tg://user links
 MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+|tg:\/\/[^\)]+)\)', flags=re.IGNORECASE)
 HTML_A_RE = re.compile(r'<a\s+[^>]*href=["\'](?:https?:\/\/|tg:\/)[^"\']+["\'][^>]*>(.*?)</a>', flags=re.IGNORECASE)
 TG_USER_LINK_RE = re.compile(r'\[([^\]]+)\]\(tg:\/\/user\?id=\d+\)', flags=re.IGNORECASE)
 
 def strip_links_and_mentions_keep_text(text: str) -> str:
-    """
-    Remove links but keep display text for Markdown/HTML links where possible.
-    Also remove bare mentions @username.
-    """
     if not text:
         return text
 
-    # Convert markdown links [text](url) -> text
     text = MD_LINK_RE.sub(r'\1', text)
-    # Convert telegram user links in markdown -> text
     text = TG_USER_LINK_RE.sub(r'\1', text)
-    # Convert html <a href="...">text</a> -> text
     text = HTML_A_RE.sub(r'\1', text)
-    # Remove plain URLs (but if URL words are same as display text we already handled)
     text = URL_RE.sub("", text)
-    # Remove mentions like @username
     text = MENTION_RE.sub("", text)
-    # Clean multiple spaces
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 def remove_mentions_only(text: str) -> str:
     if not text:
         return text
-    # Remove mentions and tg user links entirely
     text = MENTION_RE.sub("", text)
     text = TG_USER_LINK_RE.sub("", text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 def apply_block_words(text: str, blocked: List[str]) -> str:
-    """Remove blocked words occurrences (word boundaries) case-insensitive."""
     if not blocked or not text:
         return text
     safe_text = text
@@ -432,6 +392,7 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
     new_text = re.sub(r'\s+', ' ', new_text).strip()
     return new_text
 
+# ---------------- Function Handler ----------------
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
@@ -450,7 +411,8 @@ async def capture_user_input(client, message):
             await client.delete_messages(user_id, [message.id, instr_msg_id])
         except Exception:
             pass
-        await client.send_message(user_id, "✅ Caption updated!")
+        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
+        await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
         return
 
     # --- Block words ---
@@ -461,7 +423,8 @@ async def capture_user_input(client, message):
         words = [w.strip() for w in re.split(r'[,\n]+', text) if w.strip()]
         if words:
             await set_block_words(channel_id, words)
-            await client.send_message(user_id, f"✅ Blocked words updated!\n🚫 {', '.join(words)}")
+            buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
+            await client.send_message(user_id,f"✅ Blocked words updated!\n🚫 {', '.join(words)}",reply_markup=InlineKeyboardMarkup(buttons))
         bot_data["block_words_set"].pop(user_id, None)
         try:
             await client.delete_messages(user_id, [message.id, instr_msg_id])
@@ -476,11 +439,9 @@ async def capture_user_input(client, message):
         instr_msg_id = session.get("instr_msg_id")
         pairs = parse_replace_pairs(text)
         if pairs:
-            await set_replace_words(channel_id, pairs)  # store as list of tuples
-            await client.send_message(
-                user_id,
-                f"✅ Replace words updated!\n🔤 {', '.join([f'{old}→{new}' for old,new in pairs])}"
-            )
+            await set_replace_words(channel_id, pairs)  
+            buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
+            await client.send_message(user_id,f"✅ Blocked words updated!\n🚫 {', '.join(words)}",reply_markup=InlineKeyboardMarkup(buttons))
         bot_data["replace_words_set"].pop(user_id, None)
         try:
             await client.delete_messages(user_id, [message.id, instr_msg_id])
@@ -499,7 +460,8 @@ async def capture_user_input(client, message):
             await client.delete_messages(user_id, [message.id, instr_msg_id])
         except Exception:
             pass
-        await client.send_message(user_id, "✅ Prefix updated!")
+        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
+        await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
         return
 
     if user_id in bot_data.get("suffix_set", {}):
@@ -512,7 +474,126 @@ async def capture_user_input(client, message):
             await client.delete_messages(user_id, [message.id, instr_msg_id])
         except Exception:
             pass
-        await client.send_message(user_id, "✅ Suffix updated!")
+        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
+        await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
         return
 
-   
+# ---------------- Back Button Handler ----------------
+@Client.on_callback_query(filters.regex(r"^back_to_captionmenu_(-?\d+)$"))
+async def back_to_caption_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    # Clean user caption set state if exists
+    if "caption_set" in bot_data and user_id in bot_data["caption_set"]:
+        bot_data["caption_set"].pop(user_id, None)
+
+    # Load channel details
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
+
+    caption_data = await get_channel_caption(channel_id)
+    current_caption = caption_data["caption"] if caption_data else None
+    caption_display = f"📝 **Current Caption:**\n{current_caption}" if current_caption else "📝 **Current Caption:** None set yet."
+
+    # Buttons same as your menu
+    buttons = [
+        [InlineKeyboardButton("🆕 Set Caption", callback_data=f"setcapmsg_{channel_id}"),
+         InlineKeyboardButton("❌ Delete Caption", callback_data=f"delcap_{channel_id}")],
+        [InlineKeyboardButton("🔤 Caption Font", callback_data=f"capfont_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    await query.message.edit_text(
+        f"⚙️ **Channel:** {chat_title}\n{caption_display}\n\nChoose what you want to do 👇",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+@Client.on_callback_query(filters.regex(r"^back_to_blockwords_(-?\d+)$"))
+async def back_to_blockwords_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    if "block_words_set" in bot_data and user_id in bot_data["block_words_set"]:
+        bot_data["block_words_set"].pop(user_id, None)
+
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
+
+    blocked_words = await get_block_words(channel_id)
+    words_text = ", ".join(blocked_words) if blocked_words else "None set yet."
+
+    text = (
+        f"📛 **Channel:** {chat_title}\n\n"
+        f"🚫 **Blocked Words:**\n{words_text}\n\n"
+        f"Choose what you want to do 👇"
+    )
+
+    buttons = [
+        [InlineKeyboardButton("📝 Set Block Words", callback_data=f"addwords_{channel_id}"),
+         InlineKeyboardButton("🗑️ Delete Block Words", callback_data=f"delwords_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_callback_query(filters.regex(r"^back_to_replace_(-?\d+)$"))
+async def back_to_replace_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    if "replace_words_set" in bot_data and user_id in bot_data["replace_words_set"]:
+        bot_data["replace_words_set"].pop(user_id, None)
+
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
+
+    replace_dict = await get_replace_words(channel_id)
+    if replace_dict:
+        replace_text = "\n".join(f"{old} → {new}" for old, new in replace_dict.items())
+    else:
+        replace_text = "None set yet."
+
+    text = (
+        f"📛 **Channel:** {chat_title}\n\n"
+        f"🔤 **Replace Words:**\n{replace_text}\n\n"
+        f"Choose what you want to do 👇"
+    )
+
+    buttons = [
+        [InlineKeyboardButton("📝 Set Replace Words", callback_data=f"addreplace_{channel_id}"),
+         InlineKeyboardButton("🗑️ Delete Replace Words", callback_data=f"delreplace_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_callback_query(filters.regex(r"^back_to_suffixprefix_(-?\d+)$"))
+async def back_to_suffixprefix_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    if "suffix_set" in bot_data and user_id in bot_data["suffix_set"]:
+        bot_data["suffix_set"].pop(user_id, None)
+    if "prefix_set" in bot_data and user_id in bot_data["prefix_set"]:
+        bot_data["prefix_set"].pop(user_id, None)
+
+    suffix, prefix = await get_suffix_prefix(channel_id)
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
+
+    buttons = [
+        [InlineKeyboardButton("Set Suffix", callback_data=f"set_suf_{channel_id}"),
+         InlineKeyboardButton("Del Suffix", callback_data=f"del_suf_{channel_id}")],
+        [InlineKeyboardButton("Set Prefix", callback_data=f"set_pre_{channel_id}"),
+         InlineKeyboardButton("Del Prefix", callback_data=f"del_pre_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    text = (
+        f"📌 Channel: {chat_title}\n\n"
+        f"Current Suffix: {suffix or 'None'}\n"
+        f"Current Prefix: {prefix or 'None'}"
+    )
+
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
