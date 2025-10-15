@@ -69,32 +69,6 @@ async def when_added_as_admin(client, chat_member_update):
         print(f"[ERROR] when_added_as_admin: {e}")
 
 
-@Client.on_start()
-async def startup_check(client):
-    """On bot startup, check all channels where bot is admin."""
-    await asyncio.sleep(3)
-    print("[INFO] Scanning for channels where bot is admin...")
-    async for dialog in client.get_dialogs():
-        chat = dialog.chat
-        try:
-            if getattr(chat, "type", "") == "channel":
-                member = await client.get_chat_member(chat.id, "me")
-                if str(member.status).lower() in ("administrator", "creator", "owner"):
-                    existing = await get_channel_caption(chat.id)
-                    if not existing:
-                        await addCap(chat.id, DEF_CAP)
-                        await set_block_words(chat.id, [])
-                        await set_prefix(chat.id, "")
-                        await set_suffix(chat.id, "")
-                        await set_replace_words(chat.id, "")
-                        await set_link_remover_status(chat.id, False)
-                    print(f"[INIT] Found existing channel: {chat.title} ({chat.id})")
-        except Exception:
-            continue
-    print("[INFO] Channel scan completed.")
-
-        
-
 # ---------------- Commands ----------------
 @Client.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
@@ -118,35 +92,6 @@ async def start_cmd(client, message):
         caption=f"<b>Hᴇʟʟᴏ {message.from_user.mention}\n\nI am auto caption bot with custom caption.</b>",
         reply_markup=keyboard,
     )
-
-    # ---------------- Detect startchannel ----------------
-    if message.text and "startchannel" in message.text.lower():
-        dialogs = await client.get_dialogs()
-        added_channels = 0
-        for dialog in dialogs:
-            chat = dialog.chat
-            try:
-                member = await client.get_chat_member(chat.id, "me")
-                if getattr(chat, "type", "") in ("channel",) and _is_admin_member(member):
-                    await add_user_channel(user_id, chat.id, chat.title or "Unnamed Channel")
-                    existing_settings = await get_channel_caption(chat.id)
-                    if not existing_settings:
-                        await addCap(chat.id, DEF_CAP)
-                        await set_block_words(chat.id, [])
-                        await set_prefix(chat.id, "")
-                        await set_suffix(chat.id, "")
-                        await set_replace_words(chat.id, "")
-                        await set_link_remover_status(chat.id, False)
-                    added_channels += 1
-            except Exception:
-                continue
-        if added_channels:
-            await client.send_message(
-                user_id,
-                f"✅ Successfully registered {added_channels} channel(s) where I'm admin!\n"
-                "Previous settings restored if any."
-            )
-
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command(["total_users"]))
 async def all_db_users_here(client, message):
