@@ -234,6 +234,8 @@ async def delete_blocked_words(client, query):
 @Client.on_callback_query(filters.regex(r'^set_suffixprefix_(-?\d+)$'))
 async def suffix_prefix_menu(client, query):
     channel_id = int(query.matches[0].group(1))
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
     suffix, prefix = await get_suffix_prefix(channel_id)
 
     buttons = [
@@ -251,6 +253,11 @@ async def suffix_prefix_menu(client, query):
         pass
     await client.send_message(query.from_user.id, text, reply_markup=InlineKeyboardMarkup(buttons))
 
+@Client.on_callback_query(filters.regex(r"^back_to_suffixprefix_(-?\d+)$"))
+async def back_to_suffixprefix_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    await suffix_prefix_menu(client, query)
+
 @Client.on_callback_query(filters.regex(r'^set_suf_(-?\d+)$'))
 async def set_suffix_message(client, query):
     channel_id = int(query.matches[0].group(1))
@@ -259,7 +266,7 @@ async def set_suffix_message(client, query):
 
     instr = await client.send_message(
         chat_id=user_id,
-        text="🖋️ Send the suffix text you want to add to your captions.\n\nUse /cancel to abort.",
+        text="🖋️ Send the suffix text you want to add to your captions.",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
         )
@@ -276,7 +283,7 @@ async def set_prefix_message(client, query):
 
     instr = await client.send_message(
         chat_id=user_id,
-        text="✍️ Send the prefix text you want to add to your captions.\n\nUse /cancel to abort.",
+        text="✍️ Send the prefix text you want to add to your captions.",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
         )
