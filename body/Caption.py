@@ -351,11 +351,11 @@ def parse_replace_pairs(replace_raw: str) -> list[tuple[str, str]]:
         if ":" in item:
             old, new = item.split(":", 1)
             pairs.append((old.strip(), new.strip()))
-     return pairs
+    return pairs
 
 def apply_replacements(text: str, pairs: list[tuple[str, str]]) -> str:
     for old, new in pairs:
-        text = text.replace(old, new)
+        text = re.sub(re.escape(old), new, text, flags=re.IGNORECASE)
     return text
 
 def apply_block_words(text: str, blocked: List[str]) -> str:
