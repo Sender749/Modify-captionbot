@@ -58,7 +58,7 @@ async def when_added_as_admin(client, chat_member_update):
                 owner_id,
                 f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime using /settings.",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚙️ Open Settings", callback_data="back_channels")]
+                    [InlineKeyboardButton("⚙️ Open Settings", callback_data="settings")]
                 ])
             )
             print(f"[NEW] Added to {chat.title} by {owner_name} ({owner_id})")
