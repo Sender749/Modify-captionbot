@@ -353,9 +353,9 @@ async def set_replace_words_message(client, query):
         chat_id=user_id,
         text=(
             "🔤 Send me the **replace words** for this channel.\n"
-            "Use format: `old new, another_old another_new`\n\n"
+            "Use format: `old:new,another_old:another_new`\n\n"
             "Example:\n"
-            "<code>spam scam, fake real</code>\n\n"
+            "<code>spam:scam,fake:real</code>\n\n"
         ),
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
