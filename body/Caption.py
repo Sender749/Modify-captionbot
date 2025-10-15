@@ -153,7 +153,7 @@ async def user_settings(client, message):
         ch_title = ch.get("channel_title", str(ch_id))
         try:
             member = await client.get_chat_member(ch_id, "me")
-            if getattr(member, "status", "").lower() in ("administrator", "creator", "owner"):
+            if _is_admin_member(member):
                 try:
                     chat = await client.get_chat(ch_id)
                     ch_title = getattr(chat, "title", ch_title)
@@ -161,17 +161,13 @@ async def user_settings(client, message):
                     pass
                 valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
             else:
-                # it's confirmed bot lost admin rights — remove from DB
                 await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
                 removed_titles.append(ch_title)
         except ChatAdminRequired:
-            # Bot lacks permission to query this channel — treat as lost access and remove
             await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
             removed_titles.append(ch_title)
         except RPCError as e:
-            # transient RPC error — skip removing (do not delete DB; allow later retry)
             print(f"[WARN] RPC error checking channel {ch_id}: {e}")
-            # optionally include in valid list with placeholder title (so user sees it)
             valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
         except Exception as ex:
             print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
@@ -248,15 +244,15 @@ async def reCap(client, message):
         print("Caption template format error:", e)
         new_caption = (cap_doc.get("caption") or DEF_CAP)
 
-    replace_pairs = parse_replace_pairs(replace_raw) if replace_raw else []
-    if replace_pairs:
-        new_caption = apply_replacements(new_caption, replace_pairs)
+    if replace_raw:
+        replace_pairs = parse_replace_pairs(replace_raw)
+        if replace_pairs:
+            new_caption = apply_replacements(new_caption, replace_pairs)
 
     if blocked_words:
         new_caption = apply_block_words(new_caption, blocked_words)
 
     if link_remover_on:
-        # Keep display text from markdown/html links but remove url and mentions
         new_caption = strip_links_and_mentions_keep_text(new_caption)
 
     if prefix:
@@ -349,6 +345,19 @@ def remove_mentions_only(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+def parse_replace_pairs(replace_raw: str) -> list[tuple[str, str]]:
+    pairs = []
+    for item in replace_raw.split(","):
+        if ":" in item:
+            old, new = item.split(":", 1)
+            pairs.append((old.strip(), new.strip()))
+     return pairs
+
+def apply_replacements(text: str, pairs: list[tuple[str, str]]) -> str:
+    for old, new in pairs:
+        text = text.replace(old, new)
+    return text
+
 def apply_block_words(text: str, blocked: List[str]) -> str:
     if not blocked or not text:
         return text
@@ -378,6 +387,34 @@ def parse_replace_pairs(raw):
         if len(parts) == 2:
             pairs.append((parts[0], parts[1]))
     return pairs
+
+def parse_replace_words(text: str) -> dict:
+    replace_dict = {}
+    if not text:
+        return replace_dict
+    lines = text.strip().split("\n")
+    for line in lines:
+        if ":" in line:
+            old, new = line.split(":", 1)
+            replace_dict[old.strip()] = new.strip()
+    return replace_dict
+
+def apply_replace_words(text: str, replace_raw: str) -> str:
+    """
+    Apply replace words to a caption.
+    replace_raw format: "old1:new1,old2:new2"
+    """
+    if not replace_raw:
+        return text
+
+    try:
+        pairs = [pair.split(":", 1) for pair in replace_raw.split(",") if ":" in pair]
+        for old, new in pairs:
+            text = text.replace(old, new)
+    except Exception:
+        pass
+
+    return text
 
 
 def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
