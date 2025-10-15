@@ -134,7 +134,11 @@ async def set_caption_message(client, query):
 @Client.on_callback_query(filters.regex(r'^back_to_captionmenu_(-?\d+)$'))
 async def back_to_caption_menu(client, query):
     channel_id = int(query.matches[0].group(1))
-    await set_caption_menu(client, query) 
+    user_id = query.from_user.id
+    if "caption_set" in bot_data and user_id in bot_data["caption_set"]:
+        bot_data["caption_set"].pop(user_id, None)
+    await set_caption_menu(client, query)
+
 
 @Client.on_callback_query(filters.regex(r'^delcap_(-?\d+)$'))
 async def delete_caption(client, query):
