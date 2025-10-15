@@ -6,7 +6,7 @@ import traceback
 from typing import Tuple, List, Dict, Optional
 from pyrogram import Client, filters, errors, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from pyrogram.errors import ChatAdminRequired, RPCError
+from pyrogram.errors import ChatAdminRequired, RPCError, ChatMemberUpdated
 from pyrogram import enums
 from info import *
 from Script import script
@@ -23,7 +23,6 @@ bot_data = {
 
 @Client.on_chat_member_updated()
 async def detect_bot_added(client, event: ChatMemberUpdated):
-    """Trigger when bot is added, removed, or re-added to a channel"""
     try:
         new = event.new_chat_member
         old = event.old_chat_member
