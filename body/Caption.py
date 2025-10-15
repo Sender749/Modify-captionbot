@@ -5,7 +5,7 @@ import sys
 import traceback
 from typing import Tuple, List, Dict, Optional
 from pyrogram import Client, filters, errors, enums
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberUpdated
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberUpdated, CallbackQuery
 from pyrogram.errors import ChatAdminRequired, RPCError
 from pyrogram import enums
 from info import *
@@ -48,7 +48,7 @@ async def when_added_as_admin(client, chat_member_update):
                 owner_id,
                 f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime using /settings.",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚙️ Open Settings", callback_data="settings")]
+                    [InlineKeyboardButton("⚙️ Open Settings", callback_data="settings_cb")]
                 ])
             )
             print(f"[NEW] Added to {chat.title} by {owner_name} ({owner_id})")
@@ -57,6 +57,21 @@ async def when_added_as_admin(client, chat_member_update):
 
     except Exception as e:
         print(f"[ERROR] when_added_as_admin: {e}")
+
+@Client.on_callback_query(filters.regex(r"^settings_cb$"))
+async def settings_button_handler(client: Client, query: CallbackQuery):
+    class DummyMessage:
+        def __init__(self, chat, from_user):
+            self.chat = chat
+            self.from_user = from_user
+        @property
+        def id(self):
+            return None
+        async def reply_text(self, *args, **kwargs):
+            return await query.message.reply_text(*args, **kwargs)
+    dummy_msg = DummyMessage(chat=query.message.chat, from_user=query.from_user)
+    await user_settings(client, dummy_msg)
+    await query.answer()
 
 
 # ---------------- Commands ----------------
