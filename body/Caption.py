@@ -359,18 +359,37 @@ def remove_mentions_only(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-def parse_replace_pairs(replace_raw: str) -> list[tuple[str, str]]:
+def parse_replace_pairs(raw) -> list[tuple[str, str]]:
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        raw = ','.join(map(str, raw))
+    elif not isinstance(raw, str):
+        raw = str(raw)
+    raw = raw.replace('\n', ',')
+    items = [p.strip() for p in raw.split(',') if p.strip()]
     pairs = []
-    for item in replace_raw.split(","):
-        if ":" in item:
-            old, new = item.split(":", 1)
+    for item in items:
+        parts = item.split(None, 1)  # split by first space only
+        if len(parts) == 2:
+            old, new = parts
             pairs.append((old.strip(), new.strip()))
     return pairs
 
 def apply_replacements(text: str, pairs: list[tuple[str, str]]) -> str:
+    if not pairs or not text:
+        return text
+    new_text = text
     for old, new in pairs:
-        text = re.sub(re.escape(old), new, text, flags=re.IGNORECASE)
-    return text
+        if not old:
+            continue
+        try:
+            pattern = re.compile(r'\b' + re.escape(old) + r'\b', flags=re.IGNORECASE)
+            new_text = pattern.sub(new, new_text)
+        except re.error:
+            new_text = new_text.replace(old, new)
+    new_text = re.sub(r'\s+', ' ', new_text).strip()
+    return new_text
 
 def apply_block_words(text: str, blocked: List[str]) -> str:
     if not blocked or not text:
@@ -494,8 +513,8 @@ async def capture_user_input(client, message):
         channel_id = session["channel_id"]
         instr_msg_id = session.get("instr_msg_id")
         pairs = parse_replace_pairs(text)
-        if pairs:
-            await set_replace_words(channel_id, pairs)
+        if text:
+            await set_replace_words(channel_id, text)
             formatted_pairs = [f"{old} → {new}" for old, new in pairs]
             buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
             await client.send_message(user_id,f"✅ Replace words updated!\n🚫 {', '.join(formatted_pairs)}",reply_markup=InlineKeyboardMarkup(buttons))
