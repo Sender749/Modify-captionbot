@@ -350,28 +350,32 @@ async def reCap(client, message):
                 print("Caption edit failed:", e)
                 break
 
-        # Send to dump (skip for admin uploads)
+                # Send to dump (skip for admin uploads)
         if sender_id and (sender_id not in ADMIN if isinstance(ADMIN, list) else sender_id != ADMIN):
             async def send_to_dump():
-                try:
-                    # Fast path: try sending using file_id directly
-                    sent = False
-                    try:
-                        if msg.video:
-                            await client.send_video(DUMP_CH, msg.video.file_id, caption=new_caption)
-                        elif msg.audio:
-                            await client.send_audio(DUMP_CH, msg.audio.file_id, caption=new_caption)
-                        elif msg.document:
-                            await client.send_document(DUMP_CH, msg.document.file_id, caption=new_caption)
-                        elif msg.voice:
-                            await client.send_voice(DUMP_CH, msg.voice.file_id, caption=new_caption)
-                        sent = True
-                    except Exception as e:
-                        # Only download if file_id sending fails (private source)
-                        print(f"[INFO] Direct send failed ({type(e).__name__}), retrying via download...")
+                import aiofiles
+                import os
+                from pyrogram.errors import FloodWait
 
-                    if not sent:
+                try:
+                    temp_path = None
+
+                    # Download media safely (works for private/public)
+                    try:
                         temp_path = await msg.download()
+                        if not temp_path:
+                            print("[WARN] Download returned None — retrying forced download...")
+                            temp_path = await client.download_media(msg)
+                    except Exception as e:
+                        print(f"[ERR] Download failed: {e}")
+                        return
+
+                    if not temp_path or not os.path.exists(temp_path):
+                        print("[ERR] File not found after download")
+                        return
+
+                    # Reupload to dump channel
+                    try:
                         if msg.video:
                             await client.send_video(DUMP_CH, video=temp_path, caption=new_caption)
                         elif msg.audio:
@@ -380,21 +384,25 @@ async def reCap(client, message):
                             await client.send_document(DUMP_CH, document=temp_path, caption=new_caption)
                         elif msg.voice:
                             await client.send_voice(DUMP_CH, voice=temp_path, caption=new_caption)
+                        print(f"[OK] File sent to dump: {temp_path}")
+                    except FloodWait as e:
+                        print(f"[WARN] FloodWait while sending dump: {e.value}s")
+                        await asyncio.sleep(e.value)
+                    except Exception as e:
+                        print(f"[ERR] Sending to dump failed: {e}")
 
-                        # Remove temp file safely
-                        import os
-                        if os.path.exists(temp_path):
+                    # Cleanup after upload
+                    try:
+                        if temp_path and os.path.exists(temp_path):
                             os.remove(temp_path)
+                    except Exception as e:
+                        print(f"[WARN] Cleanup failed: {e}")
 
-                except errors.FloodWait as e:
-                    print(f"[WARN] FloodWait while sending dump: {e.value}s")
-                    await asyncio.sleep(e.value)
                 except Exception as e:
-                    print(f"[WARN] Sending to dump failed: {e}")
+                    print(f"[WARN] send_to_dump crashed: {e}")
 
             asyncio.create_task(send_to_dump())
 
-    asyncio.create_task(process_message(message))
 
 
 # ---------------- Helper functions ----------------
