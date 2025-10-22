@@ -64,7 +64,7 @@ async def back_to_channels(client, query):
 
     if removed:
         removed_text = "• " + "\n• ".join(removed)
-        await query.message.reply_text(f"⚠️ Lost access in:\n{removed_text}")
+       # await query.message.reply_text(f"⚠️ Lost access in:\n{removed_text}")
 
     if not valid:
         return await query.message.edit_text("No active channels found where I’m admin.")
