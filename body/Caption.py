@@ -391,9 +391,19 @@ def get_size(size: int) -> str:
     return "%.2f %s" % (size, units[i])
 
 def extract_language(default_caption: str) -> str:
-    pattern = r'\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Hin)\b'
-    langs = set(re.findall(pattern, default_caption or "", re.IGNORECASE))
-    return ", ".join(sorted(langs, key=str.lower)) if langs else "Hindi-English"
+    languages = [
+        "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", 
+        "Marathi", "Gujarati", "Bengali", "Punjabi", "Odia", "Assamese", 
+        "Urdu", "Sanskrit", "Nepali", "Konkani", "Maithili", "Dogri",
+        "French", "German", "Spanish", "Italian", "Portuguese", "Russian", 
+        "Chinese", "Japanese", "Korean", "Arabic", "Persian", "Turkish", 
+        "Swahili", "Dutch", "Greek", "Hebrew", "Thai", "Vietnamese"
+    ]
+    if not default_caption:
+        return ""
+    found_langs = {lang for lang in languages if re.search(rf'\b{re.escape(lang)}\b', default_caption, re.IGNORECASE)}
+    return ", ".join(sorted(found_langs, key=str.lower))
+
 
 def extract_year(default_caption: str) -> Optional[str]:
     match = re.search(r'\b(19\d{2}|20\d{2})\b', default_caption or "")
