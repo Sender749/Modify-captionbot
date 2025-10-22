@@ -311,7 +311,7 @@ async def reCap(client, message):
             )
         except Exception as e:
             print("Caption template format error:", e)
-            new_caption = (cap_doc.get("caption") or DEF_CAP)
+            new_caption = cap_doc.get("caption") or DEF_CAP
 
         if replace_raw:
             replace_pairs = parse_replace_pairs(replace_raw)
@@ -327,8 +327,7 @@ async def reCap(client, message):
         if prefix:
             new_caption = f"{prefix}\n\n{new_caption}".strip()
         if suffix:
-            new_caption = f"{new_caption}\n\n{suffix}".strip()
-
+            new_caption = f"{new_caption}\n\n{new_caption}".strip()
         new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
         while True:
             try:
@@ -339,7 +338,21 @@ async def reCap(client, message):
             except Exception as e:
                 print("Caption edit failed:", e)
                 break
+        async def send_to_dump():
+            try:
+                if msg.video:
+                    await client.send_video(DUMP_CH, msg.video.file_id, caption=new_caption)
+                elif msg.audio:
+                    await client.send_audio(DUMP_CH, msg.audio.file_id, caption=new_caption)
+                elif msg.document:
+                    await client.send_document(DUMP_CH, msg.document.file_id, caption=new_caption)
+                elif msg.voice:
+                    await client.send_voice(DUMP_CH, msg.voice.file_id, caption=new_caption)
+            except Exception as e:
+                print(f"[WARN] Sending to dump failed: {e}")
+        asyncio.create_task(send_to_dump())
     asyncio.create_task(process_message(message))
+
 
 # ---------------- Helper functions ----------------
 
