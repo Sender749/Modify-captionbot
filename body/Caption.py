@@ -277,9 +277,11 @@ async def reCap(client, message):
         default_caption = msg.caption or ""
         if not msg.media:
             return
+
         sender_id = getattr(msg.from_user, "id", None)
         file_name = None
         file_size = None
+
         for file_type in ("video", "audio", "document", "voice"):
             obj = getattr(msg, file_type, None)
             if obj:
@@ -294,6 +296,7 @@ async def reCap(client, message):
 
         if not file_name:
             return
+
         cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
         cap_template = cap_doc.get("caption") or DEF_CAP
         link_remover_on = bool(cap_doc.get("link_remover", False))
@@ -304,6 +307,7 @@ async def reCap(client, message):
 
         language = extract_language(default_caption)
         year = extract_year(default_caption)
+
         try:
             new_caption = cap_template.format(
                 file_name=file_name,
@@ -316,6 +320,7 @@ async def reCap(client, message):
             print("Caption template format error:", e)
             new_caption = cap_doc.get("caption") or DEF_CAP
 
+        # Apply filters and replacements
         if replace_raw:
             replace_pairs = parse_replace_pairs(replace_raw)
             if replace_pairs:
@@ -330,8 +335,11 @@ async def reCap(client, message):
         if prefix:
             new_caption = f"{prefix}\n\n{new_caption}".strip()
         if suffix:
-            new_caption = f"{new_caption}\n\n{new_caption}".strip()
+            new_caption = f"{new_caption}\n\n{suffix}".strip()
+
         new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
+
+        # Try editing caption (with retry for FloodWait)
         while True:
             try:
                 await msg.edit_caption(new_caption)
@@ -341,21 +349,53 @@ async def reCap(client, message):
             except Exception as e:
                 print("Caption edit failed:", e)
                 break
+
+        # Send to dump (skip for admin uploads)
         if sender_id and (sender_id not in ADMIN if isinstance(ADMIN, list) else sender_id != ADMIN):
             async def send_to_dump():
                 try:
-                    if msg.video:
-                        await client.send_video(DUMP_CH, msg.video.file_id, caption=new_caption)
-                    elif msg.audio:
-                        await client.send_audio(DUMP_CH, msg.audio.file_id, caption=new_caption)
-                    elif msg.document:
-                        await client.send_document(DUMP_CH, msg.document.file_id, caption=new_caption)
-                    elif msg.voice:
-                        await client.send_voice(DUMP_CH, msg.voice.file_id, caption=new_caption)
+                    # Fast path: try sending using file_id directly
+                    sent = False
+                    try:
+                        if msg.video:
+                            await client.send_video(DUMP_CH, msg.video.file_id, caption=new_caption)
+                        elif msg.audio:
+                            await client.send_audio(DUMP_CH, msg.audio.file_id, caption=new_caption)
+                        elif msg.document:
+                            await client.send_document(DUMP_CH, msg.document.file_id, caption=new_caption)
+                        elif msg.voice:
+                            await client.send_voice(DUMP_CH, msg.voice.file_id, caption=new_caption)
+                        sent = True
+                    except Exception as e:
+                        # Only download if file_id sending fails (private source)
+                        print(f"[INFO] Direct send failed ({type(e).__name__}), retrying via download...")
+
+                    if not sent:
+                        temp_path = await msg.download()
+                        if msg.video:
+                            await client.send_video(DUMP_CH, video=temp_path, caption=new_caption)
+                        elif msg.audio:
+                            await client.send_audio(DUMP_CH, audio=temp_path, caption=new_caption)
+                        elif msg.document:
+                            await client.send_document(DUMP_CH, document=temp_path, caption=new_caption)
+                        elif msg.voice:
+                            await client.send_voice(DUMP_CH, voice=temp_path, caption=new_caption)
+
+                        # Remove temp file safely
+                        import os
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+
+                except errors.FloodWait as e:
+                    print(f"[WARN] FloodWait while sending dump: {e.value}s")
+                    await asyncio.sleep(e.value)
                 except Exception as e:
                     print(f"[WARN] Sending to dump failed: {e}")
+
             asyncio.create_task(send_to_dump())
+
     asyncio.create_task(process_message(message))
+
 
 # ---------------- Helper functions ----------------
 def _status_name(member_obj):
