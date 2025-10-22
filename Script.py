@@ -5,38 +5,37 @@ class script(object):
     START_TXT = """<b>Hᴇʟʟᴏ {}\n\n
 ɪ ᴀᴍ ᴛʜᴇ ᴍᴏꜱᴛ ᴘᴏᴡᴇʀꜰᴜʟ ᴀᴜᴛᴏ ᴄᴀᴘᴛɪᴏɴ ʙᴏᴛ ᴡɪᴛʜ ᴘʀᴇᴍɪᴜᴍ ꜰᴇᴀᴛᴜʀᴇꜱ, ᴊᴜsᴛ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ cʜᴀɴɴᴇʟ ᴀɴᴅ ᴇɴᴊᴏʏ
 
-‣ ᴍᴀɪɴᴛᴀɪɴᴇᴅ ʙʏ : <a href='https://t.me/Silicon_Bot_Update'>Sɪʟɪᴄᴏɴ Bᴏᴛ</a></b>
+‣ ᴍᴀɪɴᴛᴀɪɴᴇᴅ ʙʏ : <a href='https://t.me/Navex_69'>🄽🄰🅅🄴🅇</a></b>
 """
 
-    HELP_TXT = """•••[( 𝘎𝘦𝘵 𝘏𝘦𝘭𝘱 )]•••
+    HELP_TEXT = """
+✨ **How to Use This Bot**
 
-❗ 𝗔𝗹𝗲𝗿𝘁 ❗
+1️⃣ **Add Bot to Channel**  
+→ Add this bot to your channel as **Admin** with all permissions.  
 
-• Aᴅᴅ ᴛʜɪs ʙᴏᴛ ɪɴ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ ᴡɪᴛʜ ғᴜʟʟ ᴀᴅᴍɪɴ ʀɪɢʜᴛs.
-• Usᴇ ᴄᴏᴍᴍᴀɴᴅ ɢɪᴠᴇ ʙᴇʟᴏᴡ ɪɴ ʏᴏᴜʀ ᴄʜᴀɴɴᴇʟ.
-• Tʜᴇsᴇ ᴄᴏᴍᴍᴀɴᴅ ᴏɴʟʏ ᴡᴏʀᴋ ɪɴ ᴄʜᴀɴɴᴇʟ.
-• Kᴇᴇᴘ ғɪʟᴇ ᴡɪᴛʜᴏᴜᴛ ғᴏʀᴡᴀʀᴅ ᴛᴀɢ.
+2️⃣ **Open Settings**  
+→ After adding, go to `/settings`  
+→ Select your channel from the list.
 
-•> /set_cap - Sᴇᴛ Nᴇᴡ Cᴀᴘᴛɪᴏɴ Iɴ ʏᴏᴜʀ Cʜᴀɴɴᴇʟ
-•> /del_cap - Dᴇʟᴇᴛᴇ Yᴏᴜʀ Cᴀᴘᴛɪᴏɴ
+3️⃣ **Customize Channel Caption**  
+🖊️ Set a default caption for all uploaded media.
 
-𝑭𝒐𝒓𝒎𝒂𝒕
+4️⃣ **Replace Words**  
+✏️ Automatically replace specific words in captions.  
+Example: `old new, hello hi`
 
-`{file_name}` = Oʀɪɢɪɴᴀʟ Fɪʟᴇ Nᴀᴍᴇ
-`{file_size}` = Oʀɪɢɪɴᴀʟ Fɪʟᴇ Sɪᴢᴇ 
-`{language}` = Lᴀɴɢᴜᴀɢᴇ Oғ Fɪʟᴇ Nᴀᴍᴇ
-`{year}` = Yᴇᴀʀ Oғ Fɪʟᴇ
-`{default_caption}` = Rᴇᴀʟ Cᴀᴘᴛɪᴏɴ Oғ Fɪʟᴇ.
+5️⃣ **Block Words**  
+🚫 Remove unwanted or bad words from captions.
 
-Eg:- `/set_cap
-{file_name}
+6️⃣ **Prefix & Suffix**  
+🔠 Add text before (prefix) or after (suffix) the caption.
 
-⚙️ Size » {file_size}
+7️⃣ **Link Remover**  
+🔗 Turn **ON/OFF** automatic link removal from captions.
 
-╔═════ ᴊᴏɪɴ ᴡɪᴛʜ ᴜs ════╗
-💥 𝙅𝙊𝙄𝙉 :- ᴄʜᴀɴɴᴇʟ ʟɪɴᴋ 
-💥 𝙅𝙊𝙄𝙉 :- ᴄʜᴀɴɴᴇʟ ʟɪɴᴋ
-╚═════ ᴊᴏɪɴ ᴡɪᴛʜ ᴜs ════╝`
+✅ That’s it!  
+Your channel captions will now be fully automatic ✨
 """
 
     ABOUT_TXT = """<b>╔════❰ ᴀᴜᴛᴏ ᴄᴀᴘᴛɪᴏɴ ʙᴏᴛ ❱═❍⊱❁
