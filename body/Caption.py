@@ -122,6 +122,7 @@ async def start_cmd(client, message):
             [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
             [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
             [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69"),]
+        ]
     )
     await message.reply_photo(
         photo=SILICON_PIC,
