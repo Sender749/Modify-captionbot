@@ -11,6 +11,7 @@ from pyrogram import enums
 from info import *
 from Script import script
 from body.database import *  
+from body.database import insert_user_check_new
 
 bot_data = {
     "caption_set": {},
@@ -145,6 +146,7 @@ async def start_cmd(client, message):
 
     except Exception as e:
         print(f"[ERROR] in start_cmd: {e}")
+        
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command(["total_users"]))
 async def all_db_users_here(client, message):
     silicon = await message.reply_text("Please Wait....")
@@ -210,7 +212,7 @@ async def user_settings(client, message):
     valid_channels = []
     removed_titles = []
 
-    for ch in channels:
+    async def check_channel(ch):
         ch_id = ch.get("channel_id")
         ch_title = ch.get("channel_title", str(ch_id))
         try:
@@ -221,19 +223,25 @@ async def user_settings(client, message):
                     ch_title = getattr(chat, "title", ch_title)
                 except Exception:
                     pass
-                valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
+                return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
             else:
                 await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
-                removed_titles.append(ch_title)
-
+                return {"valid": False, "title": ch_title}
         except (ChatAdminRequired, errors.RPCError) as e:
             print(f"[INFO] Removing inaccessible channel {ch_id}: {e}")
             await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
-            removed_titles.append(ch_title)
-
+            return {"valid": False, "title": ch_title}
         except Exception as ex:
             print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
-            valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
+            return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
+
+    results = await asyncio.gather(*[check_channel(ch) for ch in channels])
+
+    for res in results:
+        if res["valid"]:
+            valid_channels.append({"channel_id": res["channel_id"], "channel_title": res["channel_title"]})
+        else:
+            removed_titles.append(res["title"])
 
     if removed_titles:
         removed_text = "• " + "\n• ".join(removed_titles)
@@ -245,6 +253,7 @@ async def user_settings(client, message):
     buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
     await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
+
     
 @Client.on_message(filters.command("reset") & filters.user(ADMIN))
 async def reset_db(client, message):
@@ -260,75 +269,77 @@ async def reset_db(client, message):
 # ---------------- Auto Caption core ----------------
 @Client.on_message(filters.channel)
 async def reCap(client, message):
-    chnl_id = message.chat.id
-    default_caption = message.caption or ""
+    async def process_message(msg):
+        chnl_id = msg.chat.id
+        default_caption = msg.caption or ""
+        if not msg.media:
+            return
+        file_name = None
+        file_size = None
+        for file_type in ("video", "audio", "document", "voice"):
+            obj = getattr(msg, file_type, None)
+            if obj:
+                file_name = getattr(obj, "file_name", None)
+                if not file_name and file_type == "voice":
+                    file_name = "Voice Message"
+                elif not file_name:
+                    file_name = "File"
+                file_name = file_name.replace("_", " ").replace(".", " ")
+                file_size = get_size(getattr(obj, "file_size", 0))
+                break
 
-    if not message.media:
-        return
+        if not file_name:
+            return
 
-    file_name = None
-    file_size = None
-    for file_type in ("video", "audio", "document", "voice"):
-        obj = getattr(message, file_type, None)
-        if obj:
-            file_name = getattr(obj, "file_name", None)
-            if not file_name and file_type == "voice":
-                file_name = "Voice Message"
-            elif not file_name:
-                file_name = "File"
-            file_name = file_name.replace("_", " ").replace(".", " ")
-            file_size = get_size(getattr(obj, "file_size", 0))
-            break
+        cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
+        cap_template = cap_doc.get("caption") or DEF_CAP
+        link_remover_on = bool(cap_doc.get("link_remover", False))
+        blocked_words = cap_doc.get("block_words", []) or []
+        suffix = cap_doc.get("suffix", "") or ""
+        prefix = cap_doc.get("prefix", "") or ""
+        replace_raw = cap_doc.get("replace_words", None)
 
-    if not file_name:
-        return
+        language = extract_language(default_caption)
+        year = extract_year(default_caption)
+        try:
+            new_caption = cap_template.format(
+                file_name=file_name,
+                file_size=file_size,
+                default_caption=default_caption,
+                language=language,
+                year=year
+            )
+        except Exception as e:
+            print("Caption template format error:", e)
+            new_caption = (cap_doc.get("caption") or DEF_CAP)
 
-    cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
-    cap_template = cap_doc.get("caption") or DEF_CAP
-    link_remover_on = bool(cap_doc.get("link_remover", False))
-    blocked_words = cap_doc.get("block_words", []) or []
-    suffix = cap_doc.get("suffix", "") or ""
-    prefix = cap_doc.get("prefix", "") or ""
-    replace_raw = cap_doc.get("replace_words", None)
+        if replace_raw:
+            replace_pairs = parse_replace_pairs(replace_raw)
+            if replace_pairs:
+                new_caption = apply_replacements(new_caption, replace_pairs)
 
-    language = extract_language(default_caption)
-    year = extract_year(default_caption)
-    try:
-        new_caption = cap_template.format(
-            file_name=file_name,
-            file_size=file_size,
-            default_caption=default_caption,
-            language=language,
-            year=year
-        )
-    except Exception as e:
-        print("Caption template format error:", e)
-        new_caption = (cap_doc.get("caption") or DEF_CAP)
+        if blocked_words:
+            new_caption = apply_block_words(new_caption, blocked_words)
 
-    if replace_raw:
-        replace_pairs = parse_replace_pairs(replace_raw)
-        if replace_pairs:
-            new_caption = apply_replacements(new_caption, replace_pairs)
+        if link_remover_on:
+            new_caption = strip_links_and_mentions_keep_text(new_caption)
 
-    if blocked_words:
-        new_caption = apply_block_words(new_caption, blocked_words)
+        if prefix:
+            new_caption = f"{prefix}\n\n{new_caption}".strip()
+        if suffix:
+            new_caption = f"{new_caption}\n\n{suffix}".strip()
 
-    if link_remover_on:
-        new_caption = strip_links_and_mentions_keep_text(new_caption)
-
-    if prefix:
-        new_caption = f"{prefix}\n\n{new_caption}".strip()
-    if suffix:
-        new_caption = f"{new_caption}\n\n{suffix}".strip()
-
-    new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
-
-    try:
-        await message.edit_caption(new_caption)
-    except errors.FloodWait as e:
-        await asyncio.sleep(e.value)
-    except Exception as e:
-        print("Caption edit failed:", e)
+        new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
+        while True:
+            try:
+                await msg.edit_caption(new_caption)
+                break
+            except errors.FloodWait as e:
+                await asyncio.sleep(e.value)
+            except Exception as e:
+                print("Caption edit failed:", e)
+                break
+    asyncio.create_task(process_message(message))
 
 # ---------------- Helper functions ----------------
 
