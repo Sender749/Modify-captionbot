@@ -106,7 +106,10 @@ async def help_callback(client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex("^start$"))
 async def back_to_start(client, query: CallbackQuery):
-    # Simply call your existing /start command function
+    try:
+        await query.message.delete()
+    except Exception as e:
+        print(f"[WARN] Could not delete previous message: {e}")
     await start_cmd(client, query.message)
 
 
@@ -274,6 +277,7 @@ async def reCap(client, message):
         default_caption = msg.caption or ""
         if not msg.media:
             return
+        sender_id = getattr(msg.from_user, "id", None)
         file_name = None
         file_size = None
         for file_type in ("video", "audio", "document", "voice"):
@@ -290,7 +294,6 @@ async def reCap(client, message):
 
         if not file_name:
             return
-
         cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
         cap_template = cap_doc.get("caption") or DEF_CAP
         link_remover_on = bool(cap_doc.get("link_remover", False))
@@ -338,21 +341,21 @@ async def reCap(client, message):
             except Exception as e:
                 print("Caption edit failed:", e)
                 break
-        async def send_to_dump():
-            try:
-                if msg.video:
-                    await client.send_video(DUMP_CH, msg.video.file_id, caption=new_caption)
-                elif msg.audio:
-                    await client.send_audio(DUMP_CH, msg.audio.file_id, caption=new_caption)
-                elif msg.document:
-                    await client.send_document(DUMP_CH, msg.document.file_id, caption=new_caption)
-                elif msg.voice:
-                    await client.send_voice(DUMP_CH, msg.voice.file_id, caption=new_caption)
-            except Exception as e:
-                print(f"[WARN] Sending to dump failed: {e}")
-        asyncio.create_task(send_to_dump())
+        if sender_id and (sender_id not in ADMIN if isinstance(ADMIN, list) else sender_id != ADMIN):
+            async def send_to_dump():
+                try:
+                    if msg.video:
+                        await client.send_video(DUMP_CH, msg.video.file_id, caption=new_caption)
+                    elif msg.audio:
+                        await client.send_audio(DUMP_CH, msg.audio.file_id, caption=new_caption)
+                    elif msg.document:
+                        await client.send_document(DUMP_CH, msg.document.file_id, caption=new_caption)
+                    elif msg.voice:
+                        await client.send_voice(DUMP_CH, msg.voice.file_id, caption=new_caption)
+                except Exception as e:
+                    print(f"[WARN] Sending to dump failed: {e}")
+            asyncio.create_task(send_to_dump())
     asyncio.create_task(process_message(message))
-
 
 # ---------------- Helper functions ----------------
 
