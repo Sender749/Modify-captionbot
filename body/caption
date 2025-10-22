@@ -3,13 +3,12 @@ async def when_added_as_admin(client, chat_member_update):
     try:
         new = chat_member_update.new_chat_member
         chat = chat_member_update.chat
-        if not new.user or not new.user.is_self:
+        if not new or not getattr(new, "user", None) or not new.user.is_self:
             return
         owner = getattr(chat_member_update, "from_user", None)
         if not owner:
-            print(f"[INFO] Added manually to: {chat.title}")
+            print(f"[INFO] Bot added manually to: {chat.title}")
             return
-
         owner_id = owner.id
         owner_name = owner.first_name
         await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
@@ -26,7 +25,7 @@ async def when_added_as_admin(client, chat_member_update):
                 owner_id,
                 f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime using /settings.",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚙️ Open Settings", callback_data="settings")]
+                    [InlineKeyboardButton("⚙️ Open Settings", callback_data="settings_cb")]
                 ])
             )
             print(f"[NEW] Added to {chat.title} by {owner_name} ({owner_id})")
@@ -35,53 +34,3 @@ async def when_added_as_admin(client, chat_member_update):
 
     except Exception as e:
         print(f"[ERROR] when_added_as_admin: {e}")
-
-
-
-@Client.on_message(filters.command("settings") & filters.private)
-async def user_settings(client, message):
-    user_id = message.from_user.id
-    channels = await get_user_channels(user_id)
-
-    if not channels:
-        return await message.reply_text("You haven’t added me to any channels yet!")
-
-    valid_channels = []
-    removed_titles = []
-
-    for ch in channels:
-        ch_id = ch.get("channel_id")
-        ch_title = ch.get("channel_title", str(ch_id))
-        try:
-            member = await client.get_chat_member(ch_id, "me")
-            if _is_admin_member(member):
-                try:
-                    chat = await client.get_chat(ch_id)
-                    ch_title = getattr(chat, "title", ch_title)
-                except Exception:
-                    pass
-                valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
-            else:
-                await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
-                removed_titles.append(ch_title)
-        except ChatAdminRequired:
-            await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
-            removed_titles.append(ch_title)
-        except RPCError as e:
-            print(f"[WARN] RPC error checking channel {ch_id}: {e}")
-            valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
-        except Exception as ex:
-            print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
-            # skip deletion to avoid accidental removal for transient issues
-            valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
-
-    if removed_titles:
-        removed_text = "• " + "\n• ".join(removed_titles)
-        await message.reply_text(f"⚠️ Removed (no admin/access):\n{removed_text}")
-
-    if not valid_channels:
-        return await message.reply_text("No active channels where I am admin.")
-
-    buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
-    buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
-    await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
