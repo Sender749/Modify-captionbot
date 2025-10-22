@@ -8,6 +8,12 @@ class script(object):
 ‣ ᴍᴀɪɴᴛᴀɪɴᴇᴅ ʙʏ : <a href='https://t.me/Navex_69'>🄽🄰🅅🄴🅇</a></b>
 """
 
+    NEW_USER_TXT = (
+    "👤 <b>New User Started the Bot</b>\n\n"
+    "🙋‍♂️ <b>User:</b> {user}\n"
+    "🆔 <b>User ID:</b> <code>{user_id}</code>"
+)
+
     HELP_TEXT = """
 ✨ **How to Use This Bot**
 
