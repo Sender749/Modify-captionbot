@@ -22,6 +22,7 @@ BOT_TOKEN = str(getenv("BOT_TOKEN", ""))
 FORCE_SUB = os.environ.get("FORCE_SUB", "") 
 MONGO_DB = str(getenv("MONGO_DB", "mongodb+srv://gd3251791_db_user:LiZ92DMTEM4iqD8H@cluster0.diqbn3b.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0",))
 LOG_CH = os.environ.get("LOG_CH", "-1002904285991") 
+DUMP_CH = os.environ.get("DUMP_CH", "-1003073036876") 
 DEF_CAP = str(
     getenv(
         "DEF_CAP",
