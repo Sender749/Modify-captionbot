@@ -14,6 +14,13 @@ class script(object):
     "🆔 <b>User ID:</b> <code>{user_id}</code>"
 )
 
+    NEW_CHANNEL_TXT = (
+    "📥 <b>Bot Added to Channel</b>\n\n"
+    "👤 <b>By User:</b> {owner_name} (<code>{owner_id}</code>)\n"
+    "📢 <b>Channel:</b> {channel_name}\n"
+    "🆔 <b>Channel ID:</b> <code>{channel_id}</code>"
+)
+
     HELP_TEXT = """
 ✨ **How to Use This Bot**
 
