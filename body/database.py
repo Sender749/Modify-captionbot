@@ -32,6 +32,22 @@ async def getid():
         users_list.append({"_id": user["_id"]})
     return users_list
 
+async def insert_user_check_new(user_id: int) -> bool:
+    try:
+        user = await users.find_one({"_id": user_id})
+        if user:
+            return False  # User already exists
+        await users.update_one(
+            {"_id": user_id},
+            {"$setOnInsert": {"channels": []}},
+            upsert=True
+        )
+        return True  
+    except Exception as e:
+        print(f"[ERROR] in insert_user_check_new: {e}")
+        return False
+
+
 # ---------------- Channel functions ----------------
 async def add_user_channel(user_id: int, channel_id: int, channel_title: str):
     await users.update_one(
