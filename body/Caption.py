@@ -57,7 +57,7 @@ async def when_added_as_admin(client, chat_member_update):
                     channel_name_clickable = f"<a href='{channel_link}'>{chat.title}</a>"
                 else:
                     channel_name_clickable = f"{chat.title} (Private Channel)"
-                log_text = NEW_CHANNEL_TXT.format(
+                log_text = script.NEW_CHANNEL_TXT.format(
                     owner_name=owner_name,
                     owner_id=owner_id,
                     channel_name=channel_name_clickable,
@@ -129,7 +129,7 @@ async def start_cmd(client, message):
         )
         await message.reply_photo(
             photo=SILICON_PIC,
-            caption=START_TXT.format(mention=message.from_user.mention),
+            caption=script.START_TXT.format(mention=message.from_user.mention),
             reply_markup=keyboard,
         )
         try:
@@ -137,7 +137,7 @@ async def start_cmd(client, message):
                 user_clickable = f"<a href='https://t.me/{username}'>{user_name}</a>"
             else:
                 user_clickable = f"{user_name}"
-            log_text = NEW_USER_TXT.format(user=user_clickable, user_id=user_id)
+            log_text = script.NEW_USER_TXT.format(user=user_clickable, user_id=user_id)
             await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
         except Exception as e:
             print(f"[WARN] Failed to send log message for new user: {e}")
