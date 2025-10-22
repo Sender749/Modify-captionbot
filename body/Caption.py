@@ -358,7 +358,6 @@ async def reCap(client, message):
     asyncio.create_task(process_message(message))
 
 # ---------------- Helper functions ----------------
-
 def _status_name(member_obj):
     status = getattr(member_obj, "status", "")
     try:
@@ -391,23 +390,18 @@ def get_size(size: int) -> str:
         i += 1
     return "%.2f %s" % (size, units[i])
 
-
 def extract_language(default_caption: str) -> str:
     pattern = r'\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Hin)\b'
     langs = set(re.findall(pattern, default_caption or "", re.IGNORECASE))
     return ", ".join(sorted(langs, key=str.lower)) if langs else "Hindi-English"
 
-
 def extract_year(default_caption: str) -> Optional[str]:
     match = re.search(r'\b(19\d{2}|20\d{2})\b', default_caption or "")
     return match.group(1) if match else None
-
-
 URL_RE = re.compile(
     r"(https?://[^\s]+|www\.[^\s]+|t\.me/[^\s/]+(?:/[^\s]+)?)",
     flags=re.IGNORECASE
 )
-
 MENTION_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
 MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+|tg:\/\/[^\)]+)\)', flags=re.IGNORECASE)
 HTML_A_RE = re.compile(r'<a\s+[^>]*href=["\'](?:https?:\/\/|tg:\/)[^"\']+["\'][^>]*>(.*?)</a>', flags=re.IGNORECASE)
@@ -416,7 +410,6 @@ TG_USER_LINK_RE = re.compile(r'\[([^\]]+)\]\(tg:\/\/user\?id=\d+\)', flags=re.IG
 def strip_links_and_mentions_keep_text(text: str) -> str:
     if not text:
         return text
-
     text = MD_LINK_RE.sub(r'\1', text)
     text = TG_USER_LINK_RE.sub(r'\1', text)
     text = HTML_A_RE.sub(r'\1', text)
@@ -522,7 +515,6 @@ def apply_replace_words(text: str, replace_raw: str) -> str:
         pass
 
     return text
-
 
 def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
     if not pairs or not text:
