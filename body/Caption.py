@@ -113,22 +113,37 @@ async def back_to_start(client, query: CallbackQuery):
 # ---------------- Commands ----------------
 @Client.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
-    user_id = int(message.from_user.id)
-    await insert_user(user_id)
-    bot_me = await client.get_me()
-    bot_username = bot_me.username or (BOT_USERNAME if "BOT_USERNAME" in globals() else bot_me.username or "Bot")
-    keyboard = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
-            [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
-            [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69"),]
-        ]
-    )
-    await message.reply_photo(
-        photo=SILICON_PIC,
-        caption=f"<b>Hᴇʟʟᴏ {message.from_user.mention}\n\nI am auto caption bot with custom caption.</b>",
-        reply_markup=keyboard,
-    )
+    try:
+        user = message.from_user
+        user_id = int(user.id)
+        user_name = user.first_name or "Unknown User"
+        username = user.username
+        await insert_user(user_id)
+        bot_me = await client.get_me()
+        bot_username = bot_me.username or (BOT_USERNAME if "BOT_USERNAME" in globals() else bot_me.username or "Bot")
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
+                [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
+                [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69")],
+            ]
+        )
+        await message.reply_photo(
+            photo=SILICON_PIC,
+            caption=START_TXT.format(mention=message.from_user.mention),
+            reply_markup=keyboard,
+        )
+        try:
+            if username:
+                user_clickable = f"<a href='https://t.me/{username}'>{user_name}</a>"
+            else:
+                user_clickable = f"{user_name}"
+            log_text = NEW_USER_TXT.format(user=user_clickable, user_id=user_id)
+            await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
+        except Exception as e:
+            print(f"[WARN] Failed to send log message for new user: {e}")
+    except Exception as e:
+        print(f"[ERROR] in start_cmd: {e}")
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command(["total_users"]))
 async def all_db_users_here(client, message):
