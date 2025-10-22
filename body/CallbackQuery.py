@@ -102,7 +102,6 @@ async def set_caption_menu(client, query):
 
     await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-
 @Client.on_callback_query(filters.regex(r'^setcapmsg_(-?\d+)$'))
 async def set_caption_message(client, query):
     channel_id = int(query.matches[0].group(1))
@@ -126,7 +125,6 @@ async def set_caption_message(client, query):
             [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
         )
     )
-
     bot_data.setdefault("caption_set", {})[user_id] = {
         "channel_id": channel_id,
         "instr_msg_id": instr.id
@@ -140,12 +138,10 @@ async def back_to_caption_menu(client, query):
         bot_data["caption_set"].pop(user_id, None)
     await set_caption_menu(client, query)
 
-
 @Client.on_callback_query(filters.regex(r'^delcap_(-?\d+)$'))
 async def delete_caption(client, query):
     channel_id = int(query.matches[0].group(1))
     await delete_channel_caption(channel_id)
-
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
     await query.message.edit_text(f"✅ Caption deleted. Now using default caption.", reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -181,9 +177,7 @@ async def set_words_menu(client, query):
          InlineKeyboardButton("🗑️ Delete Block Words", callback_data=f"delwords_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
     ]
-
     await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-
 
 @Client.on_callback_query(filters.regex(r"^addwords_(-?\d+)$"))
 async def set_block_words_message(client, query):
@@ -208,7 +202,6 @@ async def set_block_words_message(client, query):
         "channel_id": channel_id,
         "instr_msg_id": instr.id
     }
-
 
 @Client.on_callback_query(filters.regex(r"^back_to_blockwords_(-?\d+)$"))
 async def back_to_blockwords_menu(client, query):
@@ -318,30 +311,24 @@ async def set_replace_menu(client, query):
     channel_id = int(query.matches[0].group(1))
     chat = await client.get_chat(channel_id)
     chat_title = getattr(chat, "title", str(channel_id))
-
     replace_dict = await get_replace_words(channel_id)
     replace_text = "None set yet."
-
     if replace_dict:
         if isinstance(replace_dict, dict):
             replace_text = "\n".join(f"{old} → {new}" for old, new in replace_dict.items())
         elif isinstance(replace_dict, list):
             replace_text = "\n".join(f"{pair[0]} → {pair[1]}" for pair in replace_dict if len(pair) == 2)
-
     text = (
         f"📛 **Channel:** {chat_title}\n\n"
         f"🔤 **Replace Words:**\n{replace_text}\n\n"
         f"Choose what you want to do 👇"
     )
-
     buttons = [
         [InlineKeyboardButton("📝 Set Replace Words", callback_data=f"addreplace_{channel_id}"),
          InlineKeyboardButton("🗑️ Delete Replace Words", callback_data=f"delreplace_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
     ]
-
     await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-
 
 @Client.on_callback_query(filters.regex(r"^addreplace_(-?\d+)$"))
 async def set_replace_words_message(client, query):
@@ -353,20 +340,18 @@ async def set_replace_words_message(client, query):
         chat_id=user_id,
         text=(
             "🔤 Send me the **replace words** for this channel.\n"
-            "Use format: `old:new,another_old:another_new`\n\n"
+            "Use format: `old new, another_old another_new`\n\n"
             "Example:\n"
-            "<code>spam:scam,fake:real</code>\n\n"
+            "<code>spam scam, fake real</code>\n\n"
         ),
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
         )
     )
-
     bot_data.setdefault("replace_words_set", {})[user_id] = {
         "channel_id": channel_id,
         "instr_msg_id": instr.id
     }
-
 
 @Client.on_callback_query(filters.regex(r"^back_to_replace_(-?\d+)$"))
 async def back_to_replace_menu(client, query):
@@ -375,14 +360,12 @@ async def back_to_replace_menu(client, query):
     bot_data.get("replace_words_set", {}).pop(user_id, None)
     await set_replace_menu(client, query)
 
-
 @Client.on_callback_query(filters.regex(r"^delreplace_(-?\d+)$"))
 async def delete_replace_words(client, query):
     channel_id = int(query.matches[0].group(1))
     await delete_replace_words(channel_id)
     chat = await client.get_chat(channel_id)
     chat_title = getattr(chat, "title", str(channel_id))
-
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setreplace_{channel_id}")]]
     await query.message.edit_text(
         f"✅ **All replace words deleted successfully.**\n\n📛 **Channel:** {chat_title}",
