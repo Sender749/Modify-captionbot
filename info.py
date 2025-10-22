@@ -21,6 +21,7 @@ API_HASH = str(getenv("API_HASH", "e99c3c5693d6d23a143b6ce760b7a6de"))
 BOT_TOKEN = str(getenv("BOT_TOKEN", ""))
 FORCE_SUB = os.environ.get("FORCE_SUB", "") 
 MONGO_DB = str(getenv("MONGO_DB", "mongodb+srv://gd3251791_db_user:LiZ92DMTEM4iqD8H@cluster0.diqbn3b.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0",))
+LOG_CH = os.environ.get("LOG_CH", "-1002904285991") 
 DEF_CAP = str(
     getenv(
         "DEF_CAP",
