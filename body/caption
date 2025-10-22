@@ -1,36 +1,192 @@
-@Client.on_chat_member_updated()
-async def when_added_as_admin(client, chat_member_update):
-    try:
-        new = chat_member_update.new_chat_member
-        chat = chat_member_update.chat
-        if not new or not getattr(new, "user", None) or not new.user.is_self:
-            return
-        owner = getattr(chat_member_update, "from_user", None)
-        if not owner:
-            print(f"[INFO] Bot added manually to: {chat.title}")
-            return
-        owner_id = owner.id
-        owner_name = owner.first_name
-        await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
-        existing = await get_channel_caption(chat.id)
-        if not existing:
-            await addCap(chat.id, DEF_CAP)
-            await set_block_words(chat.id, [])
-            await set_prefix(chat.id, "")
-            await set_suffix(chat.id, "")
-            await set_replace_words(chat.id, "")
-            await set_link_remover_status(chat.id, False)
-        try:
-            await client.send_message(
-                owner_id,
-                f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime using /settings.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚙️ Open Settings", callback_data="settings_cb")]
-                ])
-            )
-            print(f"[NEW] Added to {chat.title} by {owner_name} ({owner_id})")
-        except Exception as e:
-            print(f"[WARN] Could not notify user: {e}")
+@Client.on_message(filters.command("settings") & filters.private)
+async def user_settings(client, message):
+    user_id = message.from_user.id
+    channels = await get_user_channels(user_id)
 
+    if not channels:
+        return await message.reply_text("You haven’t added me to any channels yet!")
+
+    valid_channels = []
+    removed_titles = []
+
+    for ch in channels:
+        ch_id = ch.get("channel_id")
+        ch_title = ch.get("channel_title", str(ch_id))
+        try:
+            member = await client.get_chat_member(ch_id, "me")
+            if _is_admin_member(member):
+                try:
+                    chat = await client.get_chat(ch_id)
+                    ch_title = getattr(chat, "title", ch_title)
+                except Exception:
+                    pass
+                valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
+            else:
+                await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
+                removed_titles.append(ch_title)
+
+        except (ChatAdminRequired, errors.RPCError) as e:
+            print(f"[INFO] Removing inaccessible channel {ch_id}: {e}")
+            await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
+            removed_titles.append(ch_title)
+
+        except Exception as ex:
+            print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
+            valid_channels.append({"channel_id": ch_id, "channel_title": ch_title})
+
+    if removed_titles:
+        removed_text = "• " + "\n• ".join(removed_titles)
+        await message.reply_text(f"⚠️ Removed (no admin/access):\n{removed_text}")
+
+    if not valid_channels:
+        return await message.reply_text("No active channels where I am admin.")
+
+    buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
+    buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
+    await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_message(filters.channel)
+async def reCap(client, message):
+    chnl_id = message.chat.id
+    default_caption = message.caption or ""
+
+    if not message.media:
+        return
+
+    file_name = None
+    file_size = None
+    for file_type in ("video", "audio", "document", "voice"):
+        obj = getattr(message, file_type, None)
+        if obj:
+            file_name = getattr(obj, "file_name", None)
+            if not file_name and file_type == "voice":
+                file_name = "Voice Message"
+            elif not file_name:
+                file_name = "File"
+            file_name = file_name.replace("_", " ").replace(".", " ")
+            file_size = get_size(getattr(obj, "file_size", 0))
+            break
+
+    if not file_name:
+        return
+
+    cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
+    cap_template = cap_doc.get("caption") or DEF_CAP
+    link_remover_on = bool(cap_doc.get("link_remover", False))
+    blocked_words = cap_doc.get("block_words", []) or []
+    suffix = cap_doc.get("suffix", "") or ""
+    prefix = cap_doc.get("prefix", "") or ""
+    replace_raw = cap_doc.get("replace_words", None)
+
+    language = extract_language(default_caption)
+    year = extract_year(default_caption)
+    try:
+        new_caption = cap_template.format(
+            file_name=file_name,
+            file_size=file_size,
+            default_caption=default_caption,
+            language=language,
+            year=year
+        )
     except Exception as e:
-        print(f"[ERROR] when_added_as_admin: {e}")
+        print("Caption template format error:", e)
+        new_caption = (cap_doc.get("caption") or DEF_CAP)
+
+    if replace_raw:
+        replace_pairs = parse_replace_pairs(replace_raw)
+        if replace_pairs:
+            new_caption = apply_replacements(new_caption, replace_pairs)
+
+    if blocked_words:
+        new_caption = apply_block_words(new_caption, blocked_words)
+
+    if link_remover_on:
+        new_caption = strip_links_and_mentions_keep_text(new_caption)
+
+    if prefix:
+        new_caption = f"{prefix}\n\n{new_caption}".strip()
+    if suffix:
+        new_caption = f"{new_caption}\n\n{suffix}".strip()
+
+    new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
+
+    try:
+        await message.edit_caption(new_caption)
+    except errors.FloodWait as e:
+        await asyncio.sleep(e.value)
+    except Exception as e:
+        print("Caption edit failed:", e)
+
+@Client.on_message(filters.channel)
+async def reCap(client, message):
+    async def process_message(msg):
+        chnl_id = msg.chat.id
+        default_caption = msg.caption or ""
+        if not msg.media:
+            return
+        file_name = None
+        file_size = None
+        for file_type in ("video", "audio", "document", "voice"):
+            obj = getattr(msg, file_type, None)
+            if obj:
+                file_name = getattr(obj, "file_name", None)
+                if not file_name and file_type == "voice":
+                    file_name = "Voice Message"
+                elif not file_name:
+                    file_name = "File"
+                file_name = file_name.replace("_", " ").replace(".", " ")
+                file_size = get_size(getattr(obj, "file_size", 0))
+                break
+
+        if not file_name:
+            return
+
+        cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
+        cap_template = cap_doc.get("caption") or DEF_CAP
+        link_remover_on = bool(cap_doc.get("link_remover", False))
+        blocked_words = cap_doc.get("block_words", []) or []
+        suffix = cap_doc.get("suffix", "") or ""
+        prefix = cap_doc.get("prefix", "") or ""
+        replace_raw = cap_doc.get("replace_words", None)
+
+        language = extract_language(default_caption)
+        year = extract_year(default_caption)
+        try:
+            new_caption = cap_template.format(
+                file_name=file_name,
+                file_size=file_size,
+                default_caption=default_caption,
+                language=language,
+                year=year
+            )
+        except Exception as e:
+            print("Caption template format error:", e)
+            new_caption = (cap_doc.get("caption") or DEF_CAP)
+
+        if replace_raw:
+            replace_pairs = parse_replace_pairs(replace_raw)
+            if replace_pairs:
+                new_caption = apply_replacements(new_caption, replace_pairs)
+
+        if blocked_words:
+            new_caption = apply_block_words(new_caption, blocked_words)
+
+        if link_remover_on:
+            new_caption = strip_links_and_mentions_keep_text(new_caption)
+
+        if prefix:
+            new_caption = f"{prefix}\n\n{new_caption}".strip()
+        if suffix:
+            new_caption = f"{new_caption}\n\n{suffix}".strip()
+
+        new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
+        while True:
+            try:
+                await msg.edit_caption(new_caption)
+                break
+            except errors.FloodWait as e:
+                await asyncio.sleep(e.value)
+            except Exception as e:
+                print("Caption edit failed:", e)
+                break
+    asyncio.create_task(process_message(message))
