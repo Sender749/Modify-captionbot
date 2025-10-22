@@ -42,7 +42,6 @@ async def when_added_as_admin(client, chat_member_update):
             await set_suffix(chat.id, "")
             await set_replace_words(chat.id, "")
             await set_link_remover_status(chat.id, False)
-
         try:
             msg = await client.send_message(
                 owner_id,
@@ -58,11 +57,11 @@ async def when_added_as_admin(client, chat_member_update):
                     channel_name_clickable = f"<a href='{channel_link}'>{chat.title}</a>"
                 else:
                     channel_name_clickable = f"{chat.title} (Private Channel)"
-                log_text = (
-                    f"📥 <b>Bot Added to New Channel</b>\n\n"
-                    f"👤 <b>User:</b> {owner_name} (<code>{owner_id}</code>)\n"
-                    f"📢 <b>Channel:</b> {channel_name_clickable}\n"
-                    f"🆔 <b>Channel ID:</b> <code>{chat.id}</code>"
+                log_text = NEW_CHANNEL_TXT.format(
+                    owner_name=owner_name,
+                    owner_id=owner_id,
+                    channel_name=channel_name_clickable,
+                    channel_id=chat.id
                 )
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
             except Exception as e:
