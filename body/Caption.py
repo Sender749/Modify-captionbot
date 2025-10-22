@@ -32,7 +32,7 @@ async def when_added_as_admin(client, chat_member_update):
             print(f"[INFO] Bot added manually to: {chat.title}")
             return
         owner_id = owner.id
-        owner_name = owner.first_name
+        owner_name = owner.first_name or "Unknown User"
         await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
         existing = await get_channel_caption(chat.id)
         if not existing:
@@ -44,7 +44,7 @@ async def when_added_as_admin(client, chat_member_update):
             await set_link_remover_status(chat.id, False)
 
         try:
-            await client.send_message(
+            msg = await client.send_message(
                 owner_id,
                 f"✅ Bot added to <b>{chat.title}</b>.\nYou can manage it anytime using /settings.",
                 reply_markup=InlineKeyboardMarkup([
@@ -52,11 +52,28 @@ async def when_added_as_admin(client, chat_member_update):
                 ])
             )
             print(f"[NEW] Added to {chat.title} by {owner_name} ({owner_id})")
+            try:
+                if chat.username:
+                    channel_link = f"https://t.me/{chat.username}"
+                    channel_name_clickable = f"<a href='{channel_link}'>{chat.title}</a>"
+                else:
+                    channel_name_clickable = f"{chat.title} (Private Channel)"
+                log_text = (
+                    f"📥 <b>Bot Added to New Channel</b>\n\n"
+                    f"👤 <b>User:</b> {owner_name} (<code>{owner_id}</code>)\n"
+                    f"📢 <b>Channel:</b> {channel_name_clickable}\n"
+                    f"🆔 <b>Channel ID:</b> <code>{chat.id}</code>"
+                )
+                await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
+            except Exception as e:
+                print(f"[WARN] Failed to send log message: {e}")
+            await asyncio.sleep(60)
+            await msg.delete()
         except Exception as e:
             print(f"[WARN] Could not notify user: {e}")
-
     except Exception as e:
         print(f"[ERROR] when_added_as_admin: {e}")
+
 
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
 async def settings_button_handler(client: Client, query: CallbackQuery):
@@ -73,25 +90,39 @@ async def settings_button_handler(client: Client, query: CallbackQuery):
     await user_settings(client, dummy_msg)
     await query.answer()
 
+@Client.on_callback_query(filters.regex("^help$"))
+async def help_callback(client, query: CallbackQuery):
+    bot_me = await client.get_me()
+    bot_username = bot_me.username
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="start")]
+    ])
+    await query.message.edit_text(
+        text=script.HELP_TEXT,
+        reply_markup=keyboard,
+        disable_web_page_preview=True
+    )
+
+@Client.on_callback_query(filters.regex("^start$"))
+async def back_to_start(client, query: CallbackQuery):
+    # Simply call your existing /start command function
+    await start_cmd(client, query.message)
+
 
 # ---------------- Commands ----------------
 @Client.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     user_id = int(message.from_user.id)
     await insert_user(user_id)
-
     bot_me = await client.get_me()
     bot_username = bot_me.username or (BOT_USERNAME if "BOT_USERNAME" in globals() else bot_me.username or "Bot")
-
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
             [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
-            [InlineKeyboardButton("🌐 Update", url="https://t.me/Silicon_Bot_Update"),
-             InlineKeyboardButton("📜 Support", url="https://t.me/Silicon_Botz")],
-        ]
+            [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69"),]
     )
-
     await message.reply_photo(
         photo=SILICON_PIC,
         caption=f"<b>Hᴇʟʟᴏ {message.from_user.mention}\n\nI am auto caption bot with custom caption.</b>",
