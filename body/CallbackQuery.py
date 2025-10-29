@@ -20,71 +20,61 @@ def _is_admin_member(member):
 @Client.on_callback_query(filters.regex(r'^chinfo_(-?\d+)$'))
 async def channel_settings(client, query):
     channel_id = int(query.matches[0].group(1))
+
+    # Get channel info safely
     try:
         chat = await client.get_chat(channel_id)
         chat_title = getattr(chat, "title", str(channel_id))
     except Exception:
         chat_title = str(channel_id)
+
+    # Fetch link remover status
     link_status = await get_link_remover_status(channel_id)
     link_text = "Link Remover (ON)" if link_status else "Link Remover (OFF)"
+
+    # Fetch caption data from DB
     caption_data = await get_channel_caption(channel_id)
-    current_caption = caption_data.get("caption") if caption_data else None
-    if current_caption:
-        display_caption = (
-            current_caption if len(current_caption) < 100
-            else current_caption[:100] + "..."
-        )
-        caption_info = f"\n\n📝 **Current Caption:**\n{display_caption}"
+
+    if not caption_data or "caption" not in caption_data:
+        caption_preview = "❌ No caption set for this channel."
     else:
-        caption_info = "\n\n📝 **Current Caption:** None set yet."
+        caption = caption_data.get("caption", "")
+        prefix = caption_data.get("prefix", "")
+        suffix = caption_data.get("suffix", "")
+
+        # Build preview naturally (single-line)
+        if prefix and suffix:
+            caption_preview = f"{prefix} {caption} {suffix}"
+        elif prefix:
+            caption_preview = f"{prefix} {caption}"
+        elif suffix:
+            caption_preview = f"{caption} {suffix}"
+        else:
+            caption_preview = caption
+
+    # Prepare text for message
+    text = (
+        f"⚙️ **Manage Channel:** {chat_title}\n\n"
+        f"📝 **Current Caption (with prefix & suffix):**\n{caption_preview}\n\n"
+        f"Choose what you want to configure 👇"
+    )
+
+    # Inline buttons
     buttons = [
         [InlineKeyboardButton("📝 Set Caption", callback_data=f"setcap_{channel_id}")],
         [InlineKeyboardButton("🧹 Set Words Remover", callback_data=f"setwords_{channel_id}")],
         [InlineKeyboardButton("🔤 Set Prefix & Suffix", callback_data=f"set_suffixprefix_{channel_id}")],
         [InlineKeyboardButton("🔄 Set Replace Words", callback_data=f"setreplace_{channel_id}")],
         [InlineKeyboardButton(f"🔗 {link_text}", callback_data=f"togglelink_{channel_id}")],
-        [InlineKeyboardButton("↩ Back", callback_data="back_channels"),InlineKeyboardButton("❌ Close", callback_data="close_msg")]]
-    text = (
-        f"⚙️ **Manage Channel:** {chat_title}"
-        f"{caption_info}\n\nChoose what you want to configure 👇"
-    )
-
-    await query.message.edit_text(text,reply_markup=InlineKeyboardMarkup(buttons))
-
-@Client.on_callback_query(filters.regex(r'^back_channels$'))
-async def back_to_channels(client, query):
-    user_id = query.from_user.id
-    channels = await get_user_channels(user_id)
-    valid = []
-    removed = []
-    for ch in channels:
-        ch_id = ch.get("channel_id")
-        ch_title = ch.get("channel_title", str(ch_id))
-        try:
-            member = await client.get_chat_member(ch_id, "me")
-            if member.status in ("administrator", "creator"):
-                valid.append(ch)
-            else:
-                removed.append(ch_title)
-        except ChatAdminRequired:
-            removed.append(ch_title)
-        except Exception as e:
-            print(f"[WARN] Error checking {ch_id}: {e}")
-            continue  
-
-    if removed:
-        removed_text = "• " + "\n• ".join(removed)
-       # await query.message.reply_text(f"⚠️ Lost access in:\n{removed_text}")
-
-    if not valid:
-        return await query.message.edit_text("No active channels found where I’m admin.")
-
-    buttons = [[InlineKeyboardButton(ch['channel_title'], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid]
-    await query.message.edit_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
-
-@Client.on_callback_query(filters.regex(r'^close_msg$'))
-async def close_message(client, query):
-    await safe_delete(query.message)
+        [InlineKeyboardButton("↩ Back", callback_data="settings_cb"),InlineKeyboardButton("❌ Close", callback_data="close_msg")]]
+    try:
+        await query.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.answer("⚠️ Caption too long to display fully.", show_alert=True)
 
 # ===================== CAPTION MENU =====================
 @Client.on_callback_query(filters.regex(r'^setcap_(-?\d+)$'))
