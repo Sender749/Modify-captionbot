@@ -270,11 +270,6 @@ async def reset_db(client, message):
 
 
 # ---------------- Auto Caption core ----------------
-from pyrogram import Client, filters, errors
-import asyncio, re
-from utils import get_size, extract_language, extract_year, parse_replace_pairs, apply_replacements, apply_block_words, strip_links_and_mentions_keep_text
-from database import chnl_ids
-
 @Client.on_message(filters.channel)
 async def reCap(client, message):
     async def process_message(msg):
