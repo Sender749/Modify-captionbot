@@ -20,7 +20,6 @@ def _is_admin_member(member):
 @Client.on_callback_query(filters.regex(r'^chinfo_(-?\d+)$'))
 async def channel_settings(client, query):
     channel_id = int(query.matches[0].group(1))
-
     try:
         chat = await client.get_chat(channel_id)
         chat_title = getattr(chat, "title", str(channel_id))
@@ -28,18 +27,29 @@ async def channel_settings(client, query):
         chat_title = str(channel_id)
     link_status = await get_link_remover_status(channel_id)
     link_text = "Link Remover (ON)" if link_status else "Link Remover (OFF)"
-
+    caption_data = await get_channel_caption(channel_id)
+    current_caption = caption_data.get("caption") if caption_data else None
+    if current_caption:
+        display_caption = (
+            current_caption if len(current_caption) < 100
+            else current_caption[:100] + "..."
+        )
+        caption_info = f"\n\n📝 **Current Caption:**\n{display_caption}"
+    else:
+        caption_info = "\n\n📝 **Current Caption:** None set yet."
     buttons = [
         [InlineKeyboardButton("📝 Set Caption", callback_data=f"setcap_{channel_id}")],
         [InlineKeyboardButton("🧹 Set Words Remover", callback_data=f"setwords_{channel_id}")],
         [InlineKeyboardButton("🔤 Set Prefix & Suffix", callback_data=f"set_suffixprefix_{channel_id}")],
         [InlineKeyboardButton("🔄 Set Replace Words", callback_data=f"setreplace_{channel_id}")],
         [InlineKeyboardButton(f"🔗 {link_text}", callback_data=f"togglelink_{channel_id}")],
-        [InlineKeyboardButton("↩ Back", callback_data="back_channels"),
-         InlineKeyboardButton("❌ Close", callback_data="close_msg")]
-    ]
+        [InlineKeyboardButton("↩ Back", callback_data="back_channels"),InlineKeyboardButton("❌ Close", callback_data="close_msg")]]
+    text = (
+        f"⚙️ **Manage Channel:** {chat_title}"
+        f"{caption_info}\n\nChoose what you want to configure 👇"
+    )
 
-    await query.message.edit_text(f"⚙️ Manage channel: **{chat_title}**",reply_markup=InlineKeyboardMarkup(buttons))
+    await query.message.edit_text(text,reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex(r'^back_channels$'))
 async def back_to_channels(client, query):
@@ -84,7 +94,7 @@ async def set_caption_menu(client, query):
     chat_title = getattr(chat, "title", str(channel_id))
 
     caption_data = await get_channel_caption(channel_id)
-    current_caption = caption_data["caption"] if caption_data else None
+    current_caption = caption_data.get("caption") if caption_data else None
     caption_display = f"📝 **Current Caption:**\n{current_caption}" if current_caption else "📝 **Current Caption:** None set yet."
 
     buttons = [
@@ -149,7 +159,7 @@ async def delete_caption(client, query):
 async def caption_font(client, query):
     channel_id = int(query.matches[0].group(1))
     current_cap = await get_channel_caption(channel_id)
-    cap_txt = current_cap["caption"] if current_cap else "No custom caption set."
+    cap_txt = current_cap.get("caption") if current_cap else "No custom caption set."
 
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
     text = f"📝 Current Caption: {cap_txt}\n\n🖋️ Available Fonts:\n\n{FONT_TXT}"
