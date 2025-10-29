@@ -270,18 +270,25 @@ async def reset_db(client, message):
 
 
 # ---------------- Auto Caption core ----------------
+from pyrogram import Client, filters, errors
+import asyncio, re
+from utils import get_size, extract_language, extract_year, parse_replace_pairs, apply_replacements, apply_block_words, strip_links_and_mentions_keep_text
+from database import chnl_ids
+
 @Client.on_message(filters.channel)
 async def reCap(client, message):
     async def process_message(msg):
-        chnl_id = msg.chat.id
-        default_caption = msg.caption or ""
+        # Skip if no media
         if not msg.media:
             return
 
-        sender_id = getattr(msg.from_user, "id", None)
+        chnl_id = msg.chat.id
+        default_caption = msg.caption or ""
+
         file_name = None
         file_size = None
 
+        # Identify media type
         for file_type in ("video", "audio", "document", "voice"):
             obj = getattr(msg, file_type, None)
             if obj:
@@ -297,17 +304,20 @@ async def reCap(client, message):
         if not file_name:
             return
 
+        # Fetch channel settings
         cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
-        cap_template = cap_doc.get("caption") or DEF_CAP
+        cap_template = cap_doc.get("caption") or "{file_name} ({file_size})"
         link_remover_on = bool(cap_doc.get("link_remover", False))
         blocked_words = cap_doc.get("block_words", []) or []
         suffix = cap_doc.get("suffix", "") or ""
         prefix = cap_doc.get("prefix", "") or ""
         replace_raw = cap_doc.get("replace_words", None)
 
+        # Extract info from caption
         language = extract_language(default_caption)
         year = extract_year(default_caption)
 
+        # Build caption
         try:
             new_caption = cap_template.format(
                 file_name=file_name,
@@ -317,8 +327,8 @@ async def reCap(client, message):
                 year=year
             )
         except Exception as e:
-            print("Caption template format error:", e)
-            new_caption = cap_doc.get("caption") or DEF_CAP
+            print(f"[ERROR] Caption format error: {e}")
+            new_caption = cap_doc.get("caption") or cap_template
 
         # Apply filters and replacements
         if replace_raw:
@@ -332,77 +342,36 @@ async def reCap(client, message):
         if link_remover_on:
             new_caption = strip_links_and_mentions_keep_text(new_caption)
 
+        # Add prefix and suffix (in-line)
         if prefix:
-            new_caption = f"{prefix}\n\n{new_caption}".strip()
+            new_caption = f"{prefix} {new_caption}".strip()
         if suffix:
-            new_caption = f"{new_caption}\n\n{suffix}".strip()
+            new_caption = f"{new_caption} {suffix}".strip()
 
+        # Clean caption
         new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
 
-        # Try editing caption (with retry for FloodWait)
+        # Try editing caption (with FloodWait retry)
         while True:
             try:
                 await msg.edit_caption(new_caption)
+                print(f"[OK] Caption updated in channel {chnl_id}")
                 break
             except errors.FloodWait as e:
+                print(f"[WAIT] FloodWait: {e.value}s")
                 await asyncio.sleep(e.value)
+            except errors.MessageNotModified:
+                print("[INFO] Caption already same, skipping edit.")
+                break
+            except errors.MessageIdInvalid:
+                print("[WARN] Invalid message for editing, skipping.")
+                break
             except Exception as e:
-                print("Caption edit failed:", e)
+                print(f"[ERROR] Caption edit failed: {type(e).__name__}: {e}")
                 break
 
-                # Send to dump (skip for admin uploads)
-        if sender_id and (sender_id not in ADMIN if isinstance(ADMIN, list) else sender_id != ADMIN):
-            async def send_to_dump():
-                import aiofiles
-                import os
-                from pyrogram.errors import FloodWait
-
-                try:
-                    temp_path = None
-
-                    # Download media safely (works for private/public)
-                    try:
-                        temp_path = await msg.download()
-                        if not temp_path:
-                            print("[WARN] Download returned None — retrying forced download...")
-                            temp_path = await client.download_media(msg)
-                    except Exception as e:
-                        print(f"[ERR] Download failed: {e}")
-                        return
-
-                    if not temp_path or not os.path.exists(temp_path):
-                        print("[ERR] File not found after download")
-                        return
-
-                    # Reupload to dump channel
-                    try:
-                        if msg.video:
-                            await client.send_video(DUMP_CH, video=temp_path, caption=new_caption)
-                        elif msg.audio:
-                            await client.send_audio(DUMP_CH, audio=temp_path, caption=new_caption)
-                        elif msg.document:
-                            await client.send_document(DUMP_CH, document=temp_path, caption=new_caption)
-                        elif msg.voice:
-                            await client.send_voice(DUMP_CH, voice=temp_path, caption=new_caption)
-                        print(f"[OK] File sent to dump: {temp_path}")
-                    except FloodWait as e:
-                        print(f"[WARN] FloodWait while sending dump: {e.value}s")
-                        await asyncio.sleep(e.value)
-                    except Exception as e:
-                        print(f"[ERR] Sending to dump failed: {e}")
-
-                    # Cleanup after upload
-                    try:
-                        if temp_path and os.path.exists(temp_path):
-                            os.remove(temp_path)
-                    except Exception as e:
-                        print(f"[WARN] Cleanup failed: {e}")
-
-                except Exception as e:
-                    print(f"[WARN] send_to_dump crashed: {e}")
-
-            asyncio.create_task(send_to_dump())
-
+    # Run asynchronously
+    asyncio.create_task(process_message(message))
 
 
 # ---------------- Helper functions ----------------
