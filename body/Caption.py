@@ -275,10 +275,10 @@ def sanitize_caption_html(text: str) -> str:
     if not text:
         return ""
     allowed_tags = {"b", "i", "u", "s", "code", "pre", "a", "spoiler", "blockquote"}
-    def replacer(match):
-        tag = match.group(1).lower()
+    def repl(match):
+        tag = match.group(1).casefold()
         return match.group(0) if tag in allowed_tags else ""
-    return re.sub(r"</?([a-zA-Z0-9]+)(?:\s[^>]*)?>", replacer, text)
+    return re.sub(r"</?\s*([a-zA-Z0-9]+)(?:\s[^>]*)?>", repl, text)
 
 @Client.on_message(filters.channel & filters.media)
 async def reCap(client, message):
@@ -447,14 +447,6 @@ def strip_links_and_mentions_keep_text(text: str) -> str:
     text = re.sub(r'[ 	]+', ' ', text) 
     return text
 
-def remove_mentions_only(text: str) -> str:
-    if not text:
-        return text
-    text = MENTION_RE.sub("", text)
-    text = TG_USER_LINK_RE.sub("", text)
-    text = re.sub(r'[ 	]+', ' ', text) 
-    return text
-
 def apply_block_words(text: str, blocked: List[str]) -> str:
     if not blocked or not text:
         return text
@@ -466,7 +458,6 @@ def apply_block_words(text: str, blocked: List[str]) -> str:
         safe_text = re.sub(pattern, '', safe_text, flags=re.IGNORECASE)
     safe_text = re.sub(r'[ 	]+', ' ', safe_text).strip()
     return safe_text
-
 
 def parse_replace_pairs(raw):
     if not raw:
@@ -484,34 +475,6 @@ def parse_replace_pairs(raw):
         if len(parts) == 2:
             pairs.append((parts[0], parts[1]))
     return pairs
-
-def parse_replace_words(text: str) -> dict:
-    replace_dict = {}
-    if not text:
-        return replace_dict
-    lines = text.strip().split("\n")
-    for line in lines:
-        if ":" in line:
-            old, new = line.split(":", 1)
-            replace_dict[old.strip()] = new.strip()
-    return replace_dict
-
-def apply_replace_words(text: str, replace_raw: str) -> str:
-    """
-    Apply replace words to a caption.
-    replace_raw format: "old1:new1,old2:new2"
-    """
-    if not replace_raw:
-        return text
-
-    try:
-        pairs = [pair.split(":", 1) for pair in replace_raw.split(",") if ":" in pair]
-        for old, new in pairs:
-            text = text.replace(old, new)
-    except Exception:
-        pass
-
-    return text
 
 def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
     if not pairs or not text:
