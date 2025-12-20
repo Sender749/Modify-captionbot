@@ -347,9 +347,9 @@ async def reCap(client, message):
             # Merge cleanly (single line)
             new_caption = " ".join(dict.fromkeys(parts))
         
-    except Exception as e:
-        print(f"[ERROR] Caption format error: {e}")
-        new_caption = cap_doc.get("caption") or cap_template
+        except Exception as e:
+            print(f"[ERROR] Caption format error: {e}")
+            new_caption = cap_doc.get("caption") or cap_template
 
         # Apply filters and replacements
         if replace_raw:
