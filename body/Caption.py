@@ -320,33 +320,22 @@ async def reCap(client, message):
 
         # Build caption
         try:
+            smart_file_name = file_name
+            if "{file_name}" in cap_template:
+                smart_file_name = build_smart_filename(
+                    base_name=file_name,
+                    default_caption=default_caption,
+                    year=year,
+                    language=language
+                )
             new_caption = cap_template.format(
+                file_name=smart_file_name,
                 file_name=file_name,
                 file_size=file_size,
                 default_caption=default_caption,
                 language=language,
                 year=year
             )
-     # ---------- SMART AUTO APPEND (INLINE) ----------
-            if "{file_name}" in cap_template:
-                parts = [new_caption]
-            # Auto year
-            if year and not already_contains(new_caption, year):
-                parts.append(year)
-            # Auto quality
-            quality = extract_quality(default_caption)
-            if quality and not already_contains(new_caption, quality):
-                parts.append(quality)
-            # Auto language
-            if language and not already_contains(new_caption, language):
-                parts.append(language)
-            # Auto format
-            video_format = extract_format(default_caption)
-            if video_format and not already_contains(new_caption, video_format):
-                parts.append(video_format)
-            # Merge cleanly (single line)
-            new_caption = " ".join(dict.fromkeys(parts))
-        
         except Exception as e:
             print(f"[ERROR] Caption format error: {e}")
             new_caption = cap_doc.get("caption") or cap_template
@@ -455,6 +444,31 @@ MENTION_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
 MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+|tg:\/\/[^\)]+)\)', flags=re.IGNORECASE)
 HTML_A_RE = re.compile(r'<a\s+[^>]*href=["\'](?:https?:\/\/|tg:\/)[^"\']+["\'][^>]*>(.*?)</a>', flags=re.IGNORECASE)
 TG_USER_LINK_RE = re.compile(r'\[([^\]]+)\]\(tg:\/\/user\?id=\d+\)', flags=re.IGNORECASE)
+
+def build_smart_filename(
+    base_name: str,
+    default_caption: str,
+    year: Optional[str],
+    language: Optional[str]
+) -> str:
+    parts = [base_name]
+    # Auto year
+    if year and not already_contains(base_name, year):
+        parts.append(year)
+    # Auto quality
+    quality = extract_quality(default_caption)
+    if quality and not already_contains(base_name, quality):
+        parts.append(quality)
+    # Auto language
+    if language and not already_contains(base_name, language):
+        parts.append(language)
+    # Auto format
+    video_format = extract_format(default_caption)
+    if video_format and not already_contains(base_name, video_format):
+        parts.append(video_format)
+    # Keep order + remove duplicates
+    return " ".join(dict.fromkeys(parts))
+
 
 def normalize(text: str) -> str:
     return re.sub(r'\s+', ' ', text.lower()).strip()
