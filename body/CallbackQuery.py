@@ -44,11 +44,11 @@ async def channel_settings(client, query):
 
         # Build preview naturally (single-line)
         if prefix and suffix:
-            caption_preview = f"{prefix} {caption} {suffix}"
+            caption_preview = f"{prefix}\n{caption}\n{suffix}"
         elif prefix:
-            caption_preview = f"{prefix} {caption}"
+            caption_preview = f"{prefix}\n{caption}"
         elif suffix:
-            caption_preview = f"{caption} {suffix}"
+            caption_preview = f"{caption}\n{suffix}"
         else:
             caption_preview = caption
 
@@ -129,13 +129,15 @@ async def set_caption_message(client, query):
             "<code>&lt;s&gt;Text&lt;/s&gt;</code> Strike\n"
             "<code>&lt;code&gt;Text&lt;/code&gt;</code> Mono\n"
             "<code>&lt;spoiler&gt;Text&lt;/spoiler&gt;</code> Spoiler\n"
-            "<code>&lt;Pre&gt;Text&lt;/Pre&gt;</code> Preformatted\n"
+            "<code>&lt;pre&gt;Text&lt;/pre&gt;</code> Preformatted\n"
             "<code>&lt;blockquote&gt;Text&lt;/blockquote&gt;</code> Block Quote\n"
             "<code>&lt;blockquote expandable&gt;Text&lt;/blockquote&gt;</code> Blockquote Expandable\n"
             "<code>&lt;a href=\"url\"&gt;Text&lt;/a&gt;</code> Link\n\n"
             "✍️ Example:\n"
             "<code>&lt;b&gt;{file_name}&lt;/b&gt;\n &lt;i&gt;{file_size}&lt;/i&gt;</code>"
          ),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
         )
@@ -165,7 +167,7 @@ async def caption_font(client, query):
     channel_id = int(query.matches[0].group(1))
     current_cap = await get_channel_caption(channel_id)
     cap_txt = current_cap.get("caption") if current_cap else "No custom caption set."
-
+    disable_web_page_preview=True
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
     text = f"📝 Current Caption: {cap_txt}\n\n🖋️ Available Fonts:\n\n{FONT_TXT}"
     await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
