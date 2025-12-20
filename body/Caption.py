@@ -275,16 +275,17 @@ ALLOWED_TAGS = {"b", "i", "u", "s", "code", "pre", "a", "spoiler", "blockquote",
 def sanitize_caption_html(text: str) -> str:
     if not text:
         return ""
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    def clean_tags(match):
+    def tag_filter(match):
         tag = match.group(1).lower()
         return match.group(0) if tag in ALLOWED_TAGS else ""
-    text = re.sub(r"</?([a-zA-Z0-9]+)(?:\s[^>]*)?>", clean_tags, text)
+    text = re.sub(r"</?([a-zA-Z0-9]+)(?:\s[^>]*)?>", tag_filter, text)
     def fix_anchor(match):
         tag = match.group(0)
-        return tag if re.search(r'href="https?://', tag) else ""
+        if re.search(r'href="https?://[^"]+"', tag):
+            return tag
+        return ""
     text = re.sub(r"<a[^>]*>", fix_anchor, text, flags=re.IGNORECASE)
-    return text.strip()
+    return text
 
 @Client.on_message(filters.channel & filters.media)
 async def reCap(client, message):
@@ -294,7 +295,7 @@ async def reCap(client, message):
         if not msg.media:
             return
         chnl_id = msg.chat.id
-        default_caption = html.escape(msg.caption) if msg.caption else ""
+        default_caption = message.caption.html if message.caption else ""
         file_name = None
         file_size = None
         for file_type in ("video", "audio", "document", "voice"):
