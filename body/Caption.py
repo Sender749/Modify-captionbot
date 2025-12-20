@@ -1,14 +1,12 @@
 import asyncio
-import re, html
+import re
 import os
 import sys
-import traceback
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Optional
 from pyrogram import Client, filters, errors, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberUpdated, CallbackQuery
 from pyrogram.errors import ChatAdminRequired, RPCError
 from pyrogram.enums import ParseMode
-from pyrogram import enums
 from info import *
 from Script import script
 from body.database import *  
@@ -323,18 +321,20 @@ async def reCap(client, message):
             smart_file_name = file_name
             if "{file_name}" in cap_template:
                 smart_file_name = build_smart_filename(
-                    base_name=file_name,
+                    base_name=normalize_series_name(file_name),
                     default_caption=default_caption,
                     year=year,
                     language=language
                 )
+
+            safe_language = safe_placeholder(language, smart_file_name)
+            safe_year = safe_placeholder(year, smart_file_name)
             new_caption = cap_template.format(
                 file_name=smart_file_name,
-                file_name=file_name,
                 file_size=file_size,
                 default_caption=default_caption,
-                language=language,
-                year=year
+                language=safe_language,
+                year=safe_year
             )
         except Exception as e:
             print(f"[ERROR] Caption format error: {e}")
@@ -430,7 +430,7 @@ def extract_language(default_caption: str) -> str:
     if not default_caption:
         return ""
     found_langs = {lang for lang in languages if re.search(rf'\b{re.escape(lang)}\b', default_caption, re.IGNORECASE)}
-    return ", ".join(sorted(found_langs, key=str.lower))
+    return " ".join(sorted(found_langs, key=str.lower))
 
 
 def extract_year(default_caption: str) -> Optional[str]:
@@ -452,23 +452,80 @@ def build_smart_filename(
     language: Optional[str]
 ) -> str:
     parts = [base_name]
-    # Auto year
+    se = extract_season_episode(default_caption)
+    if se and not already_contains(base_name, se):
+        parts.append(se)
     if year and not already_contains(base_name, year):
         parts.append(year)
-    # Auto quality
     quality = extract_quality(default_caption)
     if quality and not already_contains(base_name, quality):
         parts.append(quality)
-    # Auto language
+    audio = extract_audio_tags(default_caption)
+    if audio and not already_contains(base_name, audio):
+        parts.append(audio)
+    codec = extract_codec(default_caption)
+    if codec and not already_contains(base_name, codec):
+        parts.append(codec)
     if language and not already_contains(base_name, language):
         parts.append(language)
-    # Auto format
     video_format = extract_format(default_caption)
     if video_format and not already_contains(base_name, video_format):
         parts.append(video_format)
-    # Keep order + remove duplicates
-    return " ".join(dict.fromkeys(parts))
+    clean = []
+    for p in parts:
+        if not any(already_contains(x, p) for x in clean):
+            clean.append(p)
+    return " ".join(clean)
 
+def extract_season_episode(text: str) -> Optional[str]:
+    patterns = [
+        r'\bS\d{1,2}E\d{1,2}\b',
+        r'\bS\d{1,2}E\d{1,2}\s*(?:-|–|to)\s*E?\d{1,2}\b',
+        r'\bS\d{1,2}\s*(?:Complete|Full)\b',
+        r'\bSeason\s*\d+\s*(?:Complete|Full)?\b',
+        r'\bE\d{1,2}\s*(?:-|–|to)\s*E\d{1,2}\b',
+        r'\bEpisodes?\s*\d+\s*(?:-|–|to)\s*\d+\b',
+        r'\bEP?\s*\d{1,3}\b',
+        r'\[\s*\d{1,3}\s*(?:-|–|to)\s*\d{1,3}\s*\]'
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            return m.group(0)
+    return None
+
+def normalize_series_name(name: str) -> str:
+    if not name:
+        return ""
+    name = re.sub(r'\.(mkv|mp4|avi)$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'[._\-]+', ' ', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name.title()
+
+def extract_audio_tags(text: str) -> Optional[str]:
+    tags = [
+        "Dual Audio", "Multi Audio", "5.1", "7.1", "AAC", "DDP", "Atmos"
+    ]
+    found = []
+    for t in tags:
+        if re.search(rf'\b{re.escape(t)}\b', text, re.IGNORECASE):
+            found.append(t)
+    return " ".join(dict.fromkeys(found)) if found else None
+
+def safe_placeholder(value: Optional[str], base: str) -> str:
+    """
+    Return value only if it is NOT already present in base text.
+    """
+    if not value:
+        return ""
+    return "" if already_contains(base, value) else value
+
+def extract_codec(text: str) -> Optional[str]:
+    codecs = ["x265", "x264", "HEVC", "AV1"]
+    for c in codecs:
+        if re.search(rf'\b{c}\b', text, re.IGNORECASE):
+            return c
+    return None
 
 def normalize(text: str) -> str:
     return re.sub(r'\s+', ' ', text.lower()).strip()
