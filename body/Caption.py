@@ -491,7 +491,7 @@ def apply_replacements(text: str, pairs: list[tuple[str, str]]) -> str:
             new_text = pattern.sub(new, new_text)
         except re.error:
             new_text = new_text.replace(old, new)
-    new_text = re.sub(r'\s+', ' ', new_text).strip()
+    new_text = re.sub(r'[ 	]+', ' ', new_text).strip()
     return new_text
 
 def apply_block_words(text: str, blocked: List[str]) -> str:
@@ -566,7 +566,7 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
                 new_text = re.sub(re.escape(old), new, new_text, flags=re.IGNORECASE)
         except re.error:
             new_text = new_text.replace(old, new)
-    new_text = re.sub(r'\s+', ' ', new_text).strip()
+    new_text = re.sub(r'[ 	]+', ' ', new_text).strip()
     return new_text
 
 # ---------------- Function Handler ----------------
