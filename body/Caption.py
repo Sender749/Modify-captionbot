@@ -327,9 +327,29 @@ async def reCap(client, message):
                 language=language,
                 year=year
             )
-        except Exception as e:
-            print(f"[ERROR] Caption format error: {e}")
-            new_caption = cap_doc.get("caption") or cap_template
+     # ---------- SMART AUTO APPEND (INLINE) ----------
+            if "{file_name}" in cap_template:
+                parts = [new_caption]
+            # Auto year
+            if year and not already_contains(new_caption, year):
+                parts.append(year)
+            # Auto quality
+            quality = extract_quality(default_caption)
+            if quality and not already_contains(new_caption, quality):
+                parts.append(quality)
+            # Auto language
+            if language and not already_contains(new_caption, language):
+                parts.append(language)
+            # Auto format
+            video_format = extract_format(default_caption)
+            if video_format and not already_contains(new_caption, video_format):
+                parts.append(video_format)
+            # Merge cleanly (single line)
+            new_caption = " ".join(dict.fromkeys(parts))
+        
+    except Exception as e:
+        print(f"[ERROR] Caption format error: {e}")
+        new_caption = cap_doc.get("caption") or cap_template
 
         # Apply filters and replacements
         if replace_raw:
@@ -435,6 +455,22 @@ MENTION_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
 MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+|tg:\/\/[^\)]+)\)', flags=re.IGNORECASE)
 HTML_A_RE = re.compile(r'<a\s+[^>]*href=["\'](?:https?:\/\/|tg:\/)[^"\']+["\'][^>]*>(.*?)</a>', flags=re.IGNORECASE)
 TG_USER_LINK_RE = re.compile(r'\[([^\]]+)\]\(tg:\/\/user\?id=\d+\)', flags=re.IGNORECASE)
+
+def normalize(text: str) -> str:
+    return re.sub(r'\s+', ' ', text.lower()).strip()
+
+def extract_quality(text: str) -> Optional[str]:
+    match = re.search(r'\b(480p|720p|1080p|2160p|4k)\b', text, re.IGNORECASE)
+    return match.group(1) if match else None
+
+def extract_format(text: str) -> Optional[str]:
+    match = re.search(r'\b(mkv|mp4|avi|web-dl|hdrip|bluray|webrip)\b', text, re.IGNORECASE)
+    return match.group(1) if match else None
+
+def already_contains(base: str, value: Optional[str]) -> bool:
+    if not base or not value:
+        return False
+    return normalize(value) in normalize(base)
 
 def strip_links_and_mentions_keep_text(text: str) -> str:
     if not text:
