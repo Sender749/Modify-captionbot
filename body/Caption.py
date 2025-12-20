@@ -275,6 +275,7 @@ ALLOWED_TAGS = {"b", "i", "u", "s", "code", "pre", "a"}
 def sanitize_caption_html(text: str) -> str:
     if not text:
         return ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     def clean_tags(match):
         tag = match.group(1).lower()
         return match.group(0) if tag in ALLOWED_TAGS else ""
@@ -283,7 +284,6 @@ def sanitize_caption_html(text: str) -> str:
         tag = match.group(0)
         return tag if re.search(r'href="https?://', tag) else ""
     text = re.sub(r"<a[^>]*>", fix_anchor, text, flags=re.IGNORECASE)
-    text = re.sub(r"<(\w+)[^>]*>\s*</\1>", "", text)
     return text.strip()
 
 @Client.on_message(filters.channel)
@@ -354,7 +354,7 @@ async def reCap(client, message):
             new_caption = f"{new_caption} {suffix}".strip()
 
         # Clean caption
-        new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
+        new_caption = new_caption.strip()
         new_caption = sanitize_caption_html(new_caption)
 
         # Try editing caption (with FloodWait retry)
