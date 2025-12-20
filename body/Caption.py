@@ -274,12 +274,11 @@ async def reset_db(client, message):
 def sanitize_caption_html(text: str) -> str:
     if not text:
         return ""
-    allowed = ("b", "i", "u", "s", "code", "pre", "a", "spoiler", "blockquote")
-    pattern = re.compile(r"</?([a-zA-Z0-9]+)(\s[^>]*)?>")
-    def repl(match):
+    allowed_tags = {"b", "i", "u", "s", "code", "pre", "a", "spoiler", "blockquote"}
+    def replacer(match):
         tag = match.group(1).lower()
-        return match.group(0) if tag in allowed else ""
-    return pattern.sub(repl, text)
+        return match.group(0) if tag in allowed_tags else ""
+    return re.sub(r"</?([a-zA-Z0-9]+)(?:\s[^>]*)?>", replacer, text)
 
 @Client.on_message(filters.channel & filters.media)
 async def reCap(client, message):
@@ -456,38 +455,6 @@ def remove_mentions_only(text: str) -> str:
     text = re.sub(r'[ 	]+', ' ', text) 
     return text
 
-def parse_replace_pairs(raw) -> list[tuple[str, str]]:
-    if not raw:
-        return []
-    if isinstance(raw, list):
-        raw = ','.join(map(str, raw))
-    elif not isinstance(raw, str):
-        raw = str(raw)
-    raw = raw.replace('\n', ',')
-    items = [p.strip() for p in raw.split(',') if p.strip()]
-    pairs = []
-    for item in items:
-        parts = item.split(None, 1)  # split by first space only
-        if len(parts) == 2:
-            old, new = parts
-            pairs.append((old.strip(), new.strip()))
-    return pairs
-
-def apply_replacements(text: str, pairs: list[tuple[str, str]]) -> str:
-    if not pairs or not text:
-        return text
-    new_text = text
-    for old, new in pairs:
-        if not old:
-            continue
-        try:
-            pattern = re.compile(r'\b' + re.escape(old) + r'\b', flags=re.IGNORECASE)
-            new_text = pattern.sub(new, new_text)
-        except re.error:
-            new_text = new_text.replace(old, new)
-    new_text = re.sub(r'[ 	]+', ' ', new_text).strip()
-    return new_text
-
 def apply_block_words(text: str, blocked: List[str]) -> str:
     if not blocked or not text:
         return text
@@ -497,7 +464,7 @@ def apply_block_words(text: str, blocked: List[str]) -> str:
             continue
         pattern = r'\b' + re.escape(w) + r'\b'
         safe_text = re.sub(pattern, '', safe_text, flags=re.IGNORECASE)
-    safe_text = re.sub(r'\s+', ' ', safe_text).strip()
+    safe_text = re.sub(r'[ 	]+', ' ', safe_text).strip()
     return safe_text
 
 
