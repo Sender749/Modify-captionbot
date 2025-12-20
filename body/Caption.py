@@ -350,7 +350,7 @@ async def reCap(client, message):
             new_caption = apply_block_words(new_caption, blocked_words)
 
         if link_remover_on:
-            new_caption = strip_links_and_mentions_keep_text(new_caption)
+            new_caption = strip_links_only(new_caption)
 
         # Add prefix and suffix (in-line)
         if prefix:
@@ -548,11 +548,21 @@ def strip_links_and_mentions_keep_text(text: str) -> str:
         return text
     text = MD_LINK_RE.sub(r'\1', text)
     text = TG_USER_LINK_RE.sub(r'\1', text)
-    text = HTML_A_RE.sub(r'\1', text)
     text = URL_RE.sub("", text)
     text = MENTION_RE.sub("", text)
     text = re.sub(r'[ 	]+', ' ', text) 
     return text
+
+def strip_links_only(text: str) -> str:
+    if not text:
+        return text
+    text = MD_LINK_RE.sub(r'\1', text)
+    text = TG_USER_LINK_RE.sub(r'\1', text)
+    text = HTML_A_RE.sub(r'\1', text)
+    text = URL_RE.sub("", text)
+    text = MENTION_RE.sub("", text)
+    return re.sub(r'\s+', ' ', text).strip()
+
 
 def apply_block_words(text: str, blocked: List[str]) -> str:
     if not blocked or not text:
