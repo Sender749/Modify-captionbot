@@ -271,7 +271,7 @@ async def reset_db(client, message):
 
 
 # ---------------- Auto Caption core ----------------
-ALLOWED_TAGS = {"b", "i", "u", "s", "code", "pre", "a"}
+ALLOWED_TAGS = {"b", "i", "u", "s", "code", "pre", "a", "spoiler", "blockquote", "blockquote expandable"}
 def sanitize_caption_html(text: str) -> str:
     if not text:
         return ""
@@ -286,13 +286,15 @@ def sanitize_caption_html(text: str) -> str:
     text = re.sub(r"<a[^>]*>", fix_anchor, text, flags=re.IGNORECASE)
     return text.strip()
 
-@Client.on_message(filters.channel)
+@Client.on_message(filters.channel & filters.media)
 async def reCap(client, message):
     async def process_message(msg):
+        if message.edit_date:
+            return
         if not msg.media:
             return
         chnl_id = msg.chat.id
-        default_caption = msg.caption or ""
+        default_caption = html.escape(msg.caption) if msg.caption else ""
         file_name = None
         file_size = None
         for file_type in ("video", "audio", "document", "voice"):
@@ -377,7 +379,7 @@ async def reCap(client, message):
                 break
 
     # Run asynchronously
-    asyncio.create_task(process_message(message))
+    await process_message(message)
 
 
 # ---------------- Helper functions ----------------
