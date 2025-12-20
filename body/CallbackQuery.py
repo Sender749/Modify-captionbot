@@ -123,16 +123,18 @@ async def set_caption_message(client, query):
             "<code>{year}</code> – Year\n\n"
  
             "🔹 Text Styles:\n"
-            "<code>&lt;b&gt;Text&lt;/b&gt;</code> Bold | "
-            "<code>&lt;i&gt;Text&lt;/i&gt;</code> Italic | "
+            "<code>&lt;b&gt;Text&lt;/b&gt;</code> Bold\n "
+            "<code>&lt;i&gt;Text&lt;/i&gt;</code> Italic\n "
             "<code>&lt;u&gt;Text&lt;/u&gt;</code> Underline\n"
-            "<code>&lt;s&gt;Text&lt;/s&gt;</code> Strike | "
+            "<code>&lt;s&gt;Text&lt;/s&gt;</code> Strike\n"
             "<code>&lt;code&gt;Text&lt;/code&gt;</code> Mono\n"
             "<code>&lt;spoiler&gt;Text&lt;/spoiler&gt;</code> Spoiler\n"
+            "<code>&lt;Pre&gt;Text&lt;/Pre&gt;</code> Preformatted\n"
+            "<code>&lt;blockquote&gt;Text&lt;/blockquote&gt;</code> Block Quote\n"
+            "<code>&lt;blockquote expandable&gt;Text&lt;/blockquote&gt;</code> Blockquote Expandable\n"
             "<code>&lt;a href=\"url\"&gt;Text&lt;/a&gt;</code> Link\n\n"
-
             "✍️ Example:\n"
-            "<code>&lt;b&gt;{file_name}&lt;/b&gt; | &lt;i&gt;{file_size}&lt;/i&gt;</code>"
+            "<code>&lt;b&gt;{file_name}&lt;/b&gt;\n &lt;i&gt;{file_size}&lt;/i&gt;</code>"
          ),
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
