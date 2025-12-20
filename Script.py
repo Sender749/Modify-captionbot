@@ -65,30 +65,30 @@ Your channel captions will now be fully automatic ✨
     FONT_TXT = """🔰 About Caption Font
 
 ➢ Bold Text
-☞ <b>{file_name}</b>
+☞ <code>&lt;b&gt;{file_name}&lt;/b&gt;</code>
 
 ➢ Spoiler Text
-☞ <spoiler>{file_name}</spoiler>
+☞ <code>&lt;spoiler&gt;{file_name}&lt;/spoiler&gt;</code>
 
 ➢ Preformatted Text
-☞ <pre>{file_name}</pre>
+☞ <code>&lt;pre&gt;{file_name}&lt;/pre&gt;</code>
 
 ➢ Block Quote Text
-☞ <blockquote>{file_name}</blockquote>
-☞ <blockquote expandable>{file_name}</blockquote>
+☞ <code>&lt;blockquote&gt;{file_name}&lt;/blockquote&gt;</code>
+☞ <code>&lt;blockquote expandable&gt;{file_name}&lt;/blockquote&gt;</code>
 
 ➢ Italic Text
-☞ <i>{file_name}</i>
+☞ <code>&lt;i&gt;{file_name}&lt;/i&gt;</code>
 
 ➢ Underline Text
-☞ <u>{file_name}</u>
+☞ <code>&lt;u&gt;{file_name}&lt;/u&gt;</code>
 
 ➢ Strike Text
-☞ <s>{file_name}</s>
+☞ <code>&lt;s&gt;{file_name}&lt;/s&gt;</code>
 
 ➢ Mono Text
-☞ <code>{file_name}</code>
+☞ <code>&lt;code&gt;{file_name}&lt;/code&gt;</code>
 
 ➢ Hyperlink Text
-☞ <a href="https://t.me/Jisshu_bots">{file_name}</a>
+☞ <code>&lt;a href="https://t.me/Navex_Movies"&gt;{file_name}&lt;/a&gt;</code>
 """
