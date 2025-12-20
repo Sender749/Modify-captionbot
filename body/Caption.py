@@ -275,27 +275,15 @@ ALLOWED_TAGS = {"b", "i", "u", "s", "code", "pre", "a"}
 def sanitize_caption_html(text: str) -> str:
     if not text:
         return ""
-    text = html.escape(text)
-    for tag in ALLOWED_TAGS:
-        text = re.sub(
-            fr"&lt;({tag})(.*?)&gt;",
-            r"<\1\2>",
-            text,
-            flags=re.IGNORECASE
-        )
-        text = re.sub(
-            fr"&lt;/({tag})&gt;",
-            r"</\1>",
-            text,
-            flags=re.IGNORECASE
-        )
+    def clean_tags(match):
+        tag = match.group(1).lower()
+        return match.group(0) if tag in ALLOWED_TAGS else ""
+    text = re.sub(r"</?([a-zA-Z0-9]+)(?:\s[^>]*)?>", clean_tags, text)
     def fix_anchor(match):
         tag = match.group(0)
-        if 'href="' not in tag:
-            return ""
-        return tag
+        return tag if re.search(r'href="https?://', tag) else ""
     text = re.sub(r"<a[^>]*>", fix_anchor, text, flags=re.IGNORECASE)
-    text = re.sub(r"<(\w+)[^>]*></\1>", "", text)
+    text = re.sub(r"<(\w+)[^>]*>\s*</\1>", "", text)
     return text.strip()
 
 @Client.on_message(filters.channel)
