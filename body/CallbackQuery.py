@@ -55,7 +55,7 @@ async def channel_settings(client, query):
     # Prepare text for message
     text = (
         f"⚙️ **Manage Channel:** {chat_title}\n\n"
-        f"📝 **Current Caption (with prefix & suffix):**\n{caption_preview}\n\n"
+        f"📝 **Current Caption :**\n{caption_preview}\n\n"
         f"Choose what you want to configure 👇"
     )
 
@@ -113,14 +113,27 @@ async def set_caption_message(client, query):
     instr = await client.send_message(
         chat_id=user_id,
         text=(
-            "📌 Send me the caption for this channel.\n\n"
-            "You can use these placeholders:\n"
-            "<code>{file_name}</code> - File name\n"
-            "<code>{file_size}</code> - File size\n"
-            "<code>{default_caption}</code> - Original caption\n"
-            "<code>{language}</code> - Language\n"
-            "<code>{year}</code> - Year\n\n"
-        ),
+            "📌 Send caption for this channel\n\n"
+
+            "🔹 Placeholders:\n"
+            "<code>{file_name}</code> – File name\n"
+            "<code>{file_size}</code> – File size\n"
+            "<code>{default_caption}</code> – Original caption\n"
+            "<code>{language}</code> – Language\n"
+            "<code>{year}</code> – Year\n\n"
+ 
+            "🔹 Text Styles:\n"
+            "<code>&lt;b&gt;Text&lt;/b&gt;</code> Bold | "
+            "<code>&lt;i&gt;Text&lt;/i&gt;</code> Italic | "
+            "<code>&lt;u&gt;Text&lt;/u&gt;</code> Underline\n"
+            "<code>&lt;s&gt;Text&lt;/s&gt;</code> Strike | "
+            "<code>&lt;code&gt;Text&lt;/code&gt;</code> Mono\n"
+            "<code>&lt;spoiler&gt;Text&lt;/spoiler&gt;</code> Spoiler\n"
+            "<code>&lt;a href=\"url\"&gt;Text&lt;/a&gt;</code> Link\n\n"
+
+            "✍️ Example:\n"
+            "<code>&lt;b&gt;{file_name}&lt;/b&gt; | &lt;i&gt;{file_size}&lt;/i&gt;</code>"
+         ),
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
         )
