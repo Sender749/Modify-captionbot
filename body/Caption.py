@@ -7,6 +7,7 @@ from typing import Tuple, List, Dict, Optional
 from pyrogram import Client, filters, errors, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberUpdated, CallbackQuery
 from pyrogram.errors import ChatAdminRequired, RPCError
+from pyrogram.enums import ParseMode
 from pyrogram import enums
 from info import *
 from Script import script
@@ -371,7 +372,7 @@ async def reCap(client, message):
         # Try editing caption (with FloodWait retry)
         while True:
             try:
-                await msg.edit_caption(new_caption, parse_mode="html")
+                await msg.edit_caption(new_caption, parse_mode=ParseMode.HTML)
                 print(f"[OK] Caption updated in channel {chnl_id}")
                 break
             except errors.FloodWait as e:
