@@ -559,8 +559,12 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
-    text = (message.text or message.caption or "").strip()
-    if not text:
+    text = (
+        message.text.html if message.text else
+        message.caption.html if message.caption else
+        ""
+    )
+    if not text.strip():
         return
 
      # --- Caption ---
