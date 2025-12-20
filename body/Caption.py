@@ -271,21 +271,15 @@ async def reset_db(client, message):
 
 
 # ---------------- Auto Caption core ----------------
-ALLOWED_TAGS = {"b", "i", "u", "s", "code", "pre", "a", "spoiler", "blockquote", "blockquote expandable"}
 def sanitize_caption_html(text: str) -> str:
     if not text:
         return ""
-    def tag_filter(match):
+    allowed = ("b", "i", "u", "s", "code", "pre", "a", "spoiler", "blockquote")
+    pattern = re.compile(r"</?([a-zA-Z0-9]+)(\s[^>]*)?>")
+    def repl(match):
         tag = match.group(1).lower()
-        return match.group(0) if tag in ALLOWED_TAGS else ""
-    text = re.sub(r"</?([a-zA-Z0-9]+)(?:\s[^>]*)?>", tag_filter, text)
-    def fix_anchor(match):
-        tag = match.group(0)
-        if re.search(r'href="https?://[^"]+"', tag):
-            return tag
-        return ""
-    text = re.sub(r"<a[^>]*>", fix_anchor, text, flags=re.IGNORECASE)
-    return text
+        return match.group(0) if tag in allowed else ""
+    return pattern.sub(repl, text)
 
 @Client.on_message(filters.channel & filters.media)
 async def reCap(client, message):
@@ -352,9 +346,9 @@ async def reCap(client, message):
 
         # Add prefix and suffix (in-line)
         if prefix:
-            new_caption = f"{prefix} {new_caption}".strip()
+            new_caption = f"{prefix}\n{new_caption}".strip()
         if suffix:
-            new_caption = f"{new_caption} {suffix}".strip()
+            new_caption = f"{new_caption}\n{suffix}".strip()
 
         # Clean caption
         new_caption = new_caption.strip()
@@ -451,7 +445,7 @@ def strip_links_and_mentions_keep_text(text: str) -> str:
     text = HTML_A_RE.sub(r'\1', text)
     text = URL_RE.sub("", text)
     text = MENTION_RE.sub("", text)
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'[ 	]+', ' ', text) 
     return text
 
 def remove_mentions_only(text: str) -> str:
@@ -459,7 +453,7 @@ def remove_mentions_only(text: str) -> str:
         return text
     text = MENTION_RE.sub("", text)
     text = TG_USER_LINK_RE.sub("", text)
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'[ 	]+', ' ', text) 
     return text
 
 def parse_replace_pairs(raw) -> list[tuple[str, str]]:
