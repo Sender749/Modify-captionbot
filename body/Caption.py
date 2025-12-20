@@ -1,5 +1,5 @@
 import asyncio
-import re
+import re, html
 import os
 import sys
 import traceback
@@ -270,20 +270,42 @@ async def reset_db(client, message):
 
 
 # ---------------- Auto Caption core ----------------
+ALLOWED_TAGS = {"b", "i", "u", "s", "code", "pre", "a"}
+def sanitize_caption_html(text: str) -> str:
+    if not text:
+        return ""
+    text = html.escape(text)
+    for tag in ALLOWED_TAGS:
+        text = re.sub(
+            fr"&lt;({tag})(.*?)&gt;",
+            r"<\1\2>",
+            text,
+            flags=re.IGNORECASE
+        )
+        text = re.sub(
+            fr"&lt;/({tag})&gt;",
+            r"</\1>",
+            text,
+            flags=re.IGNORECASE
+        )
+    def fix_anchor(match):
+        tag = match.group(0)
+        if 'href="' not in tag:
+            return ""
+        return tag
+    text = re.sub(r"<a[^>]*>", fix_anchor, text, flags=re.IGNORECASE)
+    text = re.sub(r"<(\w+)[^>]*></\1>", "", text)
+    return text.strip()
+
 @Client.on_message(filters.channel)
 async def reCap(client, message):
     async def process_message(msg):
-        # Skip if no media
         if not msg.media:
             return
-
         chnl_id = msg.chat.id
         default_caption = msg.caption or ""
-
         file_name = None
         file_size = None
-
-        # Identify media type
         for file_type in ("video", "audio", "document", "voice"):
             obj = getattr(msg, file_type, None)
             if obj:
@@ -295,7 +317,6 @@ async def reCap(client, message):
                 file_name = file_name.replace("_", " ").replace(".", " ")
                 file_size = get_size(getattr(obj, "file_size", 0))
                 break
-
         if not file_name:
             return
 
@@ -345,11 +366,12 @@ async def reCap(client, message):
 
         # Clean caption
         new_caption = re.sub(r'\s+\n', '\n', new_caption).strip()
+        new_caption = sanitize_caption_html(new_caption)
 
         # Try editing caption (with FloodWait retry)
         while True:
             try:
-                await msg.edit_caption(new_caption)
+                await msg.edit_caption(new_caption, parse_mode="html")
                 print(f"[OK] Caption updated in channel {chnl_id}")
                 break
             except errors.FloodWait as e:
