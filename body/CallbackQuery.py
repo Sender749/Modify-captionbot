@@ -15,9 +15,6 @@ async def safe_delete(msg):
     except:
         pass
 
-def _is_admin_member(member):
-    return member.status in ("administrator", "creator")
-
 @Client.on_callback_query(filters.regex(r'^chinfo_(-?\d+)$'))
 async def channel_settings(client, query):
     channel_id = int(query.matches[0].group(1))
@@ -148,14 +145,6 @@ async def set_caption_message(client, query):
         "instr_msg_id": instr.id
     }
 
-@Client.on_callback_query(filters.regex(r'^back_to_captionmenu_(-?\d+)$'))
-async def back_to_caption_menu(client, query):
-    channel_id = int(query.matches[0].group(1))
-    user_id = query.from_user.id
-    if "caption_set" in bot_data and user_id in bot_data["caption_set"]:
-        bot_data["caption_set"].pop(user_id, None)
-    await set_caption_menu(client, query)
-
 @Client.on_callback_query(filters.regex(r'^delcap_(-?\d+)$'))
 async def delete_caption(client, query):
     channel_id = int(query.matches[0].group(1))
@@ -185,7 +174,7 @@ async def set_words_menu(client, query):
     if blocked_words:
         words_text = "\n".join(
             f"• {w.strip()}"
-            for w in blocked_words.replace(",", "\n").split("\n")
+            for w in re.split(r"[,\n]+", blocked_words)
             if w.strip()
         )
     else:
@@ -337,13 +326,15 @@ async def set_replace_menu(client, query):
     channel_id = int(query.matches[0].group(1))
     chat = await client.get_chat(channel_id)
     chat_title = getattr(chat, "title", str(channel_id))
-    replace_dict = await get_replace_words(channel_id)
-    replace_text = "None set yet."
-    if replace_dict:
-        if isinstance(replace_dict, dict):
-            replace_text = "\n".join(f"{old} → {new}" for old, new in replace_dict.items())
-        elif isinstance(replace_dict, list):
-            replace_text = "\n".join(f"{pair[0]} → {pair[1]}" for pair in replace_dict if len(pair) == 2)
+    replace_raw = await get_replace_words(channel_id)
+    if replace_raw:
+        replace_text = "\n".join(
+            line.strip()
+            for line in replace_raw.splitlines()
+            if line.strip()
+        )
+    else:
+        replace_text = "None set yet."
     text = (
         f"📛 **Channel:** {chat_title}\n\n"
         f"🔤 **Replace Words:**\n{replace_text}\n\n"
@@ -389,7 +380,7 @@ async def back_to_replace_menu(client, query):
 @Client.on_callback_query(filters.regex(r"^delreplace_(-?\d+)$"))
 async def delete_replace_words(client, query):
     channel_id = int(query.matches[0].group(1))
-    await delete_replace_words(channel_id)
+    await delete_replace_words_db(channel_id)
     chat = await client.get_chat(channel_id)
     chat_title = getattr(chat, "title", str(channel_id))
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setreplace_{channel_id}")]]
