@@ -118,6 +118,7 @@ async def set_caption_message(client, query):
 
             "🔹 Placeholders:\n"
             "<b>File name</b> ⇛ <code>{file_name}</code> \n"
+            "<b>Smart file name</b> ⇛ <code>{smart_file_name}</code> \n"
             "<b>File size</b> ⇛ <code>{file_size}</code>  \n"
             "<b>Original caption</b> ⇛ <code>{default_caption}</code>  \n"
             "<b>Language</b> ⇛ <code>{language}</code>  \n"
