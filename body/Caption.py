@@ -207,13 +207,10 @@ async def restart_bot(client, message):
 async def user_settings(client, message):
     user_id = message.from_user.id
     channels = await get_user_channels(user_id)
-
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
-
     valid_channels = []
     removed_titles = []
-
     async def check_channel(ch):
         ch_id = ch.get("channel_id")
         ch_title = ch.get("channel_title", str(ch_id))
@@ -355,27 +352,21 @@ async def reCap(client, message):
 
         # Clean caption
         new_caption = new_caption.strip()
-        new_caption = sanitize_caption_html(new_caption)
+        if "<" in new_caption and ">" in new_caption:
+            new_caption = sanitize_caption_html(new_caption)
+
 
         # Try editing caption (with FloodWait retry)
-        while True:
+        for _ in range(2):
             try:
                 await msg.edit_caption(new_caption, parse_mode=ParseMode.HTML)
-                print(f"[OK] Caption updated in channel {chnl_id}")
                 break
             except errors.FloodWait as e:
-                print(f"[WAIT] FloodWait: {e.value}s")
                 await asyncio.sleep(e.value)
             except errors.MessageNotModified:
-                print("[INFO] Caption already same, skipping edit.")
                 break
-            except errors.MessageIdInvalid:
-                print("[WARN] Invalid message for editing, skipping.")
+            except Exception:
                 break
-            except Exception as e:
-                print(f"[ERROR] Caption edit failed: {type(e).__name__}: {e}")
-                break
-
     # Run asynchronously
     await process_message(message)
 
@@ -392,7 +383,6 @@ def _status_name(member_obj):
         return str(status).lower()
     except Exception:
         return ""
-
 
 def _is_admin_member(member_obj) -> bool:
     if not member_obj:
@@ -446,33 +436,39 @@ def build_smart_filename(
     year: Optional[str],
     language: Optional[str]
 ) -> str:
+    base_norm = normalize(base_name)
+    def has(value: Optional[str]) -> bool:
+        return bool(value) and normalize(value) in base_norm
     parts = [base_name]
     se = extract_season_episode(default_caption)
-    if se and not already_contains(base_name, se):
+    if se and not has(se):
         parts.append(se)
-    if year and not already_contains(base_name, year):
+    if year and not has(year):
         parts.append(year)
     quality = extract_quality(default_caption)
-    if quality and not already_contains(base_name, quality):
+    if quality and not has(quality):
         parts.append(quality)
     audio_langs = extract_audio_languages(default_caption)
-    if audio_langs and not already_contains(base_name, audio_langs):
+    if audio_langs and not has(audio_langs):
         parts.append(audio_langs)
     sub_tag = extract_subtitle_tag(default_caption)
-    if sub_tag and not already_contains(base_name, sub_tag):
+    if sub_tag and not has(sub_tag):
         parts.append(sub_tag)
     audio = extract_audio_tags(default_caption)
-    if audio and not already_contains(base_name, audio):
+    if audio and not has(audio):
         parts.append(audio)
     codec = extract_codec(default_caption)
-    if codec and not already_contains(base_name, codec):
+    if codec and not has(codec):
         parts.append(codec)
     video_format = extract_format(default_caption)
-    if video_format and not already_contains(base_name, video_format):
+    if video_format and not has(video_format):
         parts.append(video_format)
     clean = []
+    seen = set()
     for p in parts:
-        if not any(already_contains(x, p) for x in clean):
+        key = normalize(p)
+        if key not in seen:
+            seen.add(key)
             clean.append(p)
     return " ".join(clean)
 
@@ -510,14 +506,6 @@ def extract_audio_tags(text: str) -> Optional[str]:
         if re.search(rf'\b{re.escape(t)}\b', text, re.IGNORECASE):
             found.append(t)
     return " ".join(dict.fromkeys(found)) if found else None
-
-def safe_placeholder(value: Optional[str], base: str) -> str:
-    """
-    Return value only if it is NOT already present in base text.
-    """
-    if not value:
-        return ""
-    return "" if already_contains(base, value) else value
 
 def extract_codec(text: str) -> Optional[str]:
     codecs = ["x265", "x264", "HEVC", "AV1"]
@@ -627,27 +615,30 @@ def strip_links_only(text: str) -> str:
 def apply_block_words(text: str, raw_blocked: str) -> str:
     if not text or not raw_blocked:
         return text
-    raw = raw_blocked.replace("\n", ",")
-    items = [w.strip() for w in raw.split(",") if w.strip()]
+    items = [
+        w.strip()
+        for w in re.split(r"[,\n]+", raw_blocked)
+        if w.strip()
+    ]
     clean_text = text
     for w in items:
         pattern = rf"""
-            [\s]*                      # leading spaces
-            [\(\[\{{]*\s*              # optional opening brackets
+            (?<!\w)              # left boundary
+            [\(\[\{{]*\s*        # optional opening brackets
             {re.escape(w)}
-            \s*[\)\]\}}]*              # optional closing brackets
-            [\s]*                      # trailing spaces
+            \s*[\)\]\}}]*        # optional closing brackets
+            (?!\w)               # right boundary
         """
         clean_text = re.sub(
             pattern,
-            " ",
+            "",
             clean_text,
             flags=re.IGNORECASE | re.VERBOSE
         )
-    clean_text = re.sub(r'[ \t]+', ' ', clean_text)
-    clean_text = re.sub(r'\n\s*\n+', '\n\n', clean_text)
-    clean_text = re.sub(r' \n', '\n', clean_text)
-    clean_text = re.sub(r'\n ', '\n', clean_text)
+    clean_text = re.sub(r"[ \t]{2,}", " ", clean_text)
+    clean_text = re.sub(r"\n{3,}", "\n\n", clean_text)
+    clean_text = re.sub(r" \n", "\n", clean_text)
+    clean_text = re.sub(r"\n ", "\n", clean_text)
     return clean_text.strip()
 
 def parse_replace_pairs(raw):
@@ -688,6 +679,17 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
+
+    active_users = (
+        set(bot_data.get("caption_set", {})) |
+        set(bot_data.get("block_words_set", {})) |
+        set(bot_data.get("replace_words_set", {})) |
+        set(bot_data.get("prefix_set", {})) |
+        set(bot_data.get("suffix_set", {}))
+    )
+
+    if user_id not in active_users:
+        return
     text = (
         message.text.html if message.text else
         message.caption.html if message.caption else
@@ -853,31 +855,29 @@ async def back_to_blockwords_menu(client, query):
 async def back_to_replace_menu(client, query):
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
-
     if "replace_words_set" in bot_data and user_id in bot_data["replace_words_set"]:
         bot_data["replace_words_set"].pop(user_id, None)
-
     chat = await client.get_chat(channel_id)
     chat_title = getattr(chat, "title", str(channel_id))
-
-    replace_dict = await get_replace_words(channel_id)
-    if replace_dict:
-        replace_text = "\n".join(f"{old} → {new}" for old, new in replace_dict.items())
+    replace_raw = await get_replace_words(channel_id)
+    if replace_raw:
+        replace_text = "\n".join(
+            line.strip()
+            for line in replace_raw.splitlines()
+            if line.strip()
+        )
     else:
         replace_text = "None set yet."
-
     text = (
         f"📛 **Channel:** {chat_title}\n\n"
         f"🔤 **Replace Words:**\n{replace_text}\n\n"
         f"Choose what you want to do 👇"
     )
-
     buttons = [
         [InlineKeyboardButton("📝 Set Replace Words", callback_data=f"addreplace_{channel_id}"),
          InlineKeyboardButton("🗑️ Delete Replace Words", callback_data=f"delreplace_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
     ]
-
     await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex(r"^back_to_suffixprefix_(-?\d+)$"))
