@@ -37,7 +37,7 @@ async def when_added_as_admin(client, chat_member_update):
         existing = await get_channel_caption(chat.id)
         if not existing:
             await addCap(chat.id, DEF_CAP)
-            await set_block_words(chat.id, [])
+            await set_block_words(chat.id, "")
             await set_prefix(chat.id, "")
             await set_suffix(chat.id, "")
             await set_replace_words(chat.id, "")
@@ -307,7 +307,7 @@ async def reCap(client, message):
         cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
         cap_template = cap_doc.get("caption") or "{file_name} ({file_size})"
         link_remover_on = bool(cap_doc.get("link_remover", False))
-        blocked_words = cap_doc.get("block_words", []) or []
+        blocked_words_raw = cap_doc.get("block_words", "")
         suffix = cap_doc.get("suffix", "") or ""
         prefix = cap_doc.get("prefix", "") or ""
         replace_raw = cap_doc.get("replace_words", None)
@@ -318,41 +318,36 @@ async def reCap(client, message):
 
         # Build caption
         try:
-            smart_file_name = file_name
-            if "{file_name}" in cap_template:
+            raw_file_name = normalize_series_name(file_name)
+            smart_file_name = ""
+            if "{smart_file_name}" in cap_template:
                 smart_file_name = build_smart_filename(
-                    base_name=normalize_series_name(file_name),
+                    base_name=raw_file_name,
                     default_caption=default_caption,
                     year=year,
                     language=language
                 )
 
-            safe_language = safe_placeholder(language, smart_file_name)
-            safe_year = safe_placeholder(year, smart_file_name)
             new_caption = cap_template.format(
-                file_name=smart_file_name,
+                file_name=raw_file_name,
+                smart_file_name=smart_file_name,
                 file_size=file_size,
                 default_caption=default_caption,
-                language=safe_language,
-                year=safe_year
-            )
+                language=language or "",
+                year=year or ""
+             )
         except Exception as e:
             print(f"[ERROR] Caption format error: {e}")
-            new_caption = cap_doc.get("caption") or cap_template
+            new_caption = cap_template
 
-        # Apply filters and replacements
+        if link_remover_on:
+            new_caption = strip_links_only(new_caption)
         if replace_raw:
             replace_pairs = parse_replace_pairs(replace_raw)
             if replace_pairs:
                 new_caption = apply_replacements(new_caption, replace_pairs)
-
-        if blocked_words:
-            new_caption = apply_block_words(new_caption, blocked_words)
-
-        if link_remover_on:
-            new_caption = strip_links_only(new_caption)
-
-        # Add prefix and suffix (in-line)
+        if blocked_words_raw:
+            new_caption = apply_block_words(new_caption, blocked_words_raw)
         if prefix:
             new_caption = f"{prefix}\n{new_caption}".strip()
         if suffix:
@@ -563,18 +558,21 @@ def strip_links_only(text: str) -> str:
     text = MENTION_RE.sub("", text)
     return re.sub(r'\s+', ' ', text).strip()
 
-
-def apply_block_words(text: str, blocked: List[str]) -> str:
-    if not blocked or not text:
+def apply_block_words(text: str, raw_blocked: str) -> str:
+    if not text or not raw_blocked:
         return text
-    safe_text = text
-    for w in blocked:
-        if not w:
-            continue
-        pattern = r'\b' + re.escape(w) + r'\b'
-        safe_text = re.sub(pattern, '', safe_text, flags=re.IGNORECASE)
-    safe_text = re.sub(r'[ 	]+', ' ', safe_text).strip()
-    return safe_text
+    blocked_words = [w for w in raw_blocked.split(",") if w.strip()]
+    clean_text = text
+    for w in blocked_words:
+        clean_text = re.sub(
+            re.escape(w),
+            "",
+            clean_text,
+            flags=re.IGNORECASE
+        )
+    clean_text = re.sub(r'[ \t]+', ' ', clean_text)
+    clean_text = re.sub(r'\n{3,}', '\n\n', clean_text)
+    return clean_text.strip()
 
 def parse_replace_pairs(raw):
     if not raw:
@@ -601,7 +599,7 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
         if not old:
             continue
         try:
-            pattern = re.compile(r'\b' + re.escape(old) + r'\b', flags=re.IGNORECASE)
+            pattern = re.compile(re.escape(old), flags=re.IGNORECASE)
             new_text = pattern.sub(new, new_text)
             if re.search(re.escape(old), new_text, flags=re.IGNORECASE):
                 new_text = re.sub(re.escape(old), new, new_text, flags=re.IGNORECASE)
@@ -642,11 +640,10 @@ async def capture_user_input(client, message):
         session = bot_data["block_words_set"][user_id]
         channel_id = session["channel_id"]
         instr_msg_id = session.get("instr_msg_id")
-        words = [w.strip() for w in re.split(r'[,\n]+', text) if w.strip()]
-        if words:
-            await set_block_words(channel_id, words)
-            buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
-            await client.send_message(user_id,f"✅ Blocked words updated!\n🚫 {', '.join(words)}",reply_markup=InlineKeyboardMarkup(buttons))
+        raw_text = text.strip()
+        await set_block_words(channel_id, raw_text)
+        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
+        await client.send_message(user_id,f"✅ Blocked words updated!\n🚫 {', '.join(words)}",reply_markup=InlineKeyboardMarkup(buttons))
         bot_data["block_words_set"].pop(user_id, None)
         try:
             await client.delete_messages(user_id, [message.id, instr_msg_id])
@@ -744,7 +741,7 @@ async def back_to_blockwords_menu(client, query):
     chat_title = getattr(chat, "title", str(channel_id))
 
     blocked_words = await get_block_words(channel_id)
-    words_text = ", ".join(blocked_words) if blocked_words else "None set yet."
+    words_text = blocked_words if blocked_words else "None set yet."
 
     text = (
         f"📛 **Channel:** {chat_title}\n\n"
