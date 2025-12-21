@@ -558,9 +558,13 @@ def strip_links_only(text: str) -> str:
     text = MENTION_RE.sub("", text)
     return re.sub(r'\s+', ' ', text).strip()
 
-def apply_block_words(text: str, raw_blocked: str) -> str:
+def apply_block_words(text: str, raw_blocked) -> str:
     if not text or not raw_blocked:
         return text
+    if isinstance(raw_blocked, list):
+        raw_blocked = ",".join(map(str, raw_blocked))
+    elif not isinstance(raw_blocked, str):
+        raw_blocked = str(raw_blocked)
     blocked_words = [w for w in raw_blocked.split(",") if w.strip()]
     clean_text = text
     for w in blocked_words:
@@ -643,7 +647,7 @@ async def capture_user_input(client, message):
         raw_text = text.strip()
         await set_block_words(channel_id, raw_text)
         buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
-        await client.send_message(user_id,f"✅ Blocked words updated!\n🚫 {', '.join(words)}",reply_markup=InlineKeyboardMarkup(buttons))
+        await client.send_message(user_id,f"✅ Blocked words updated!",reply_markup=InlineKeyboardMarkup(buttons))
         bot_data["block_words_set"].pop(user_id, None)
         try:
             await client.delete_messages(user_id, [message.id, instr_msg_id])
