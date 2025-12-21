@@ -182,7 +182,15 @@ async def set_words_menu(client, query):
     chat_title = getattr(chat, "title", str(channel_id))
 
     blocked_words = await get_block_words(channel_id)
-    words_text = blocked_words if blocked_words else "None set yet."
+    if blocked_words:
+        words_text = "\n".join(
+            f"• {w.strip()}"
+            for w in blocked_words.replace(",", "\n").split("\n")
+            if w.strip()
+        )
+    else:
+        words_text = "None set yet."
+
 
     text = (
         f"📛 **Channel:** {chat_title}\n\n"
