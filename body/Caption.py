@@ -587,11 +587,6 @@ def extract_format(text: str) -> Optional[str]:
     match = re.search(r'\b(mkv|mp4|avi|web-dl|hdrip|bluray|webrip)\b', text, re.IGNORECASE)
     return match.group(1) if match else None
 
-def already_contains(base: str, value: Optional[str]) -> bool:
-    if not base or not value:
-        return False
-    return normalize(value) in normalize(base)
-
 def strip_links_and_mentions_keep_text(text: str) -> str:
     if not text:
         return text
