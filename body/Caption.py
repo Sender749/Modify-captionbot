@@ -346,12 +346,12 @@ async def reCap(client, message):
             replace_pairs = parse_replace_pairs(replace_raw)
             if replace_pairs:
                 new_caption = apply_replacements(new_caption, replace_pairs)
+        if blocked_words_raw:
+            new_caption = apply_block_words(new_caption, blocked_words_raw)
         if prefix:
             new_caption = f"{prefix}\n{new_caption}".strip()
         if suffix:
             new_caption = f"{new_caption}\n{suffix}".strip()
-        if blocked_words_raw:
-            new_caption = apply_block_words(new_caption, blocked_words_raw)
 
         # Clean caption
         new_caption = new_caption.strip()
