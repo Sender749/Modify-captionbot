@@ -346,12 +346,12 @@ async def reCap(client, message):
             replace_pairs = parse_replace_pairs(replace_raw)
             if replace_pairs:
                 new_caption = apply_replacements(new_caption, replace_pairs)
-        if blocked_words_raw:
-            new_caption = apply_block_words(new_caption, blocked_words_raw)
         if prefix:
             new_caption = f"{prefix}\n{new_caption}".strip()
         if suffix:
             new_caption = f"{new_caption}\n{suffix}".strip()
+        if blocked_words_raw:
+            new_caption = apply_block_words(new_caption, blocked_words_raw)
 
         # Clean caption
         new_caption = new_caption.strip()
@@ -455,14 +455,18 @@ def build_smart_filename(
     quality = extract_quality(default_caption)
     if quality and not already_contains(base_name, quality):
         parts.append(quality)
+    audio_langs = extract_audio_languages(default_caption)
+    if audio_langs and not already_contains(base_name, audio_langs):
+        parts.append(audio_langs)
+    sub_tag = extract_subtitle_tag(default_caption)
+    if sub_tag and not already_contains(base_name, sub_tag):
+        parts.append(sub_tag)
     audio = extract_audio_tags(default_caption)
     if audio and not already_contains(base_name, audio):
         parts.append(audio)
     codec = extract_codec(default_caption)
     if codec and not already_contains(base_name, codec):
         parts.append(codec)
-    if language and not already_contains(base_name, language):
-        parts.append(language)
     video_format = extract_format(default_caption)
     if video_format and not already_contains(base_name, video_format):
         parts.append(video_format)
@@ -522,6 +526,68 @@ def extract_codec(text: str) -> Optional[str]:
             return c
     return None
 
+def extract_subtitle_tag(text: str) -> Optional[str]:
+    if not text:
+        return None
+    subs_langs = extract_subtitle_languages(text)
+    if not subs_langs:
+        return None
+    langs = subs_langs.lower()
+    if langs == "english":
+        return "ESub"
+    if langs == "hindi":
+        return "HSub"
+    return f"Subs {subs_langs}"
+
+def extract_audio_languages(text: str) -> str:
+    if not text:
+        return ""
+    audio_patterns = [
+        r'audio\s*[:\-]\s*([a-z ,/]+)',
+        r'dual\s*audio',
+        r'multi\s*audio'
+    ]
+    languages = [
+        "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada",
+        "Marathi", "Gujarati", "Bengali", "Punjabi", "Urdu",
+        "French", "German", "Spanish", "Italian", "Russian",
+        "Japanese", "Korean", "Chinese"
+    ]
+    found = set()
+    for pat in audio_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            for lang in languages:
+                if re.search(rf'\b{lang}\b', m.group(0), re.IGNORECASE):
+                    found.add(lang)
+    for lang in languages:
+        if re.search(rf'\b{lang}\b', text, re.IGNORECASE):
+            if not re.search(rf'(sub|subtitle).*{lang}', text, re.IGNORECASE):
+                found.add(lang)
+    return " ".join(sorted(found, key=str.lower))
+
+def extract_subtitle_languages(text: str) -> str:
+    if not text:
+        return ""
+    languages = [
+        "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada",
+        "Marathi", "Gujarati", "Bengali", "Punjabi", "Urdu",
+        "French", "German", "Spanish", "Italian", "Russian",
+        "Japanese", "Korean", "Chinese"
+    ]
+    found = set()
+    patterns = [
+        r'subtitles?\s*[:\-]\s*([a-z ,/]+)',
+        r'subs?\s*[:\-]\s*([a-z ,/]+)'
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            for lang in languages:
+                if re.search(rf'\b{lang}\b', m.group(1), re.IGNORECASE):
+                    found.add(lang)
+    return " ".join(sorted(found, key=str.lower))
+
 def normalize(text: str) -> str:
     return re.sub(r'\s+', ' ', text.lower()).strip()
 
@@ -565,17 +631,23 @@ def apply_block_words(text: str, raw_blocked) -> str:
         raw_blocked = ",".join(map(str, raw_blocked))
     elif not isinstance(raw_blocked, str):
         raw_blocked = str(raw_blocked)
-    blocked_words = [w for w in raw_blocked.split(",") if w.strip()]
+    blocked_words = [w.strip() for w in raw_blocked.split(",") if w.strip()]
     clean_text = text
     for w in blocked_words:
-        clean_text = re.sub(
-            re.escape(w),
-            "",
-            clean_text,
-            flags=re.IGNORECASE
+        pattern = (
+            r'[\s]*'                  # leading spaces
+            r'[\(\[\{]?'              # optional opening bracket ( ( [ {
+            r'\s*' +
+            re.escape(w) +
+            r'\s*'
+            r'[\)\]\}]?'              # optional closing bracket ) ] }
+            r'[\s]*'                  # trailing spaces
         )
+        clean_text = re.sub(pattern," ",clean_text,flags=re.IGNORECASE)
     clean_text = re.sub(r'[ \t]+', ' ', clean_text)
     clean_text = re.sub(r'\n{3,}', '\n\n', clean_text)
+    clean_text = re.sub(r' \n', '\n', clean_text)
+    clean_text = re.sub(r'\n ', '\n', clean_text)
     return clean_text.strip()
 
 def parse_replace_pairs(raw):
@@ -645,7 +717,13 @@ async def capture_user_input(client, message):
         channel_id = session["channel_id"]
         instr_msg_id = session.get("instr_msg_id")
         raw_text = text.strip()
-        await set_block_words(channel_id, raw_text)
+        old_words = await get_block_words(channel_id)
+        if old_words:
+            combined = old_words.rstrip() + "\n" + raw_text
+        else:
+            combined = raw_text
+        await set_block_words(channel_id, combined)
+
         buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
         await client.send_message(user_id,f"✅ Blocked words updated!",reply_markup=InlineKeyboardMarkup(buttons))
         bot_data["block_words_set"].pop(user_id, None)
@@ -662,7 +740,12 @@ async def capture_user_input(client, message):
         instr_msg_id = session.get("instr_msg_id")
         pairs = parse_replace_pairs(text)
         if text:
-            await set_replace_words(channel_id, text)
+            old_replace = await get_replace_words(channel_id)
+            if old_replace:
+                combined = old_replace.rstrip() + "\n" + text.strip()
+            else:
+                combined = text.strip()
+            await set_replace_words(channel_id, combined)
             formatted_pairs = [f"{old} → {new}" for old, new in pairs]
             buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
             await client.send_message(user_id,f"✅ Replace words updated!\n🚫 {', '.join(formatted_pairs)}",reply_markup=InlineKeyboardMarkup(buttons))
@@ -678,6 +761,9 @@ async def capture_user_input(client, message):
         session = bot_data["prefix_set"][user_id]
         channel_id = session["channel_id"]
         instr_msg_id = session.get("instr_msg_id")
+        old_suffix, old_prefix = await get_suffix_prefix(channel_id)
+        if old_prefix:
+            text = old_prefix.rstrip() + "\n" + text.strip()
         await set_prefix(channel_id, text)
         bot_data["prefix_set"].pop(user_id, None)
         try:
@@ -692,6 +778,9 @@ async def capture_user_input(client, message):
         session = bot_data["suffix_set"][user_id]
         channel_id = session["channel_id"]
         instr_msg_id = session.get("instr_msg_id")
+        old_suffix, old_prefix = await get_suffix_prefix(channel_id)
+        if old_suffix:
+            text = old_suffix.rstrip() + "\n" + text.strip()
         await set_suffix(channel_id, text)
         bot_data["suffix_set"].pop(user_id, None)
         try:
