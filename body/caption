@@ -283,7 +283,7 @@ async def reCap(client, message):
         if not msg.media:
             return
         chnl_id = msg.chat.id
-        default_caption = message.caption.html if message.caption else ""
+        default_caption = message.caption or ""
         file_name = None
         file_size = None
         for file_type in ("video", "audio", "document", "voice"):
@@ -337,14 +337,14 @@ async def reCap(client, message):
             print(f"[ERROR] Caption format error: {e}")
             new_caption = cap_template
 
-        if link_remover_on:
-            new_caption = strip_links_only(new_caption)
+        if blocked_words_raw:
+            new_caption = apply_block_words(new_caption, blocked_words_raw)
         if replace_raw:
             replace_pairs = parse_replace_pairs(replace_raw)
             if replace_pairs:
                 new_caption = apply_replacements(new_caption, replace_pairs)
-        if blocked_words_raw:
-            new_caption = apply_block_words(new_caption, blocked_words_raw)
+        if link_remover_on:
+            new_caption = strip_links_only(new_caption)
         if prefix:
             new_caption = f"{prefix}\n{new_caption}".strip()
         if suffix:
@@ -352,27 +352,21 @@ async def reCap(client, message):
 
         # Clean caption
         new_caption = new_caption.strip()
-        new_caption = sanitize_caption_html(new_caption)
+        if "<" in new_caption and ">" in new_caption:
+            new_caption = sanitize_caption_html(new_caption)
+
 
         # Try editing caption (with FloodWait retry)
-        while True:
+        for _ in range(2):
             try:
                 await msg.edit_caption(new_caption, parse_mode=ParseMode.HTML)
-                print(f"[OK] Caption updated in channel {chnl_id}")
                 break
             except errors.FloodWait as e:
-                print(f"[WAIT] FloodWait: {e.value}s")
                 await asyncio.sleep(e.value)
             except errors.MessageNotModified:
-                print("[INFO] Caption already same, skipping edit.")
                 break
-            except errors.MessageIdInvalid:
-                print("[WARN] Invalid message for editing, skipping.")
+            except Exception:
                 break
-            except Exception as e:
-                print(f"[ERROR] Caption edit failed: {type(e).__name__}: {e}")
-                break
-
     # Run asynchronously
     await process_message(message)
 
@@ -423,6 +417,21 @@ def extract_language(default_caption: str) -> str:
     found_langs = {lang for lang in languages if re.search(rf'\b{re.escape(lang)}\b', default_caption, re.IGNORECASE)}
     return " ".join(sorted(found_langs, key=str.lower))
 
+def normalize_for_matching(text: str) -> str:
+    if not text:
+        return ""
+    text = HTML_A_RE.sub(r'\1', text)
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = text.replace("–", "-").replace("—", "-")
+    text = re.sub(r'\s+', ' ', text)
+    return text.lower().strip()
+
+def html_to_plain_text(text: str) -> str:
+    if not text:
+        return ""
+    text = HTML_A_RE.sub(r'\1', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    return text
 
 def extract_year(default_caption: str) -> Optional[str]:
     match = re.search(r'\b(19\d{2}|20\d{2})\b', default_caption or "")
@@ -442,33 +451,39 @@ def build_smart_filename(
     year: Optional[str],
     language: Optional[str]
 ) -> str:
+    base_norm = normalize(base_name)
+    def has(value: Optional[str]) -> bool:
+        return bool(value) and normalize(value) in base_norm
     parts = [base_name]
     se = extract_season_episode(default_caption)
-    if se and not already_contains(base_name, se):
+    if se and not has(se):
         parts.append(se)
-    if year and not already_contains(base_name, year):
+    if year and not has(year):
         parts.append(year)
     quality = extract_quality(default_caption)
-    if quality and not already_contains(base_name, quality):
+    if quality and not has(quality):
         parts.append(quality)
     audio_langs = extract_audio_languages(default_caption)
-    if audio_langs and not already_contains(base_name, audio_langs):
+    if audio_langs and not has(audio_langs):
         parts.append(audio_langs)
     sub_tag = extract_subtitle_tag(default_caption)
-    if sub_tag and not already_contains(base_name, sub_tag):
+    if sub_tag and not has(sub_tag):
         parts.append(sub_tag)
     audio = extract_audio_tags(default_caption)
-    if audio and not already_contains(base_name, audio):
+    if audio and not has(audio):
         parts.append(audio)
     codec = extract_codec(default_caption)
-    if codec and not already_contains(base_name, codec):
+    if codec and not has(codec):
         parts.append(codec)
     video_format = extract_format(default_caption)
-    if video_format and not already_contains(base_name, video_format):
+    if video_format and not has(video_format):
         parts.append(video_format)
     clean = []
+    seen = set()
     for p in parts:
-        if not any(already_contains(x, p) for x in clean):
+        key = normalize(p)
+        if key not in seen:
+            seen.add(key)
             clean.append(p)
     return " ".join(clean)
 
@@ -506,14 +521,6 @@ def extract_audio_tags(text: str) -> Optional[str]:
         if re.search(rf'\b{re.escape(t)}\b', text, re.IGNORECASE):
             found.append(t)
     return " ".join(dict.fromkeys(found)) if found else None
-
-def safe_placeholder(value: Optional[str], base: str) -> str:
-    """
-    Return value only if it is NOT already present in base text.
-    """
-    if not value:
-        return ""
-    return "" if already_contains(base, value) else value
 
 def extract_codec(text: str) -> Optional[str]:
     codecs = ["x265", "x264", "HEVC", "AV1"]
@@ -595,11 +602,6 @@ def extract_format(text: str) -> Optional[str]:
     match = re.search(r'\b(mkv|mp4|avi|web-dl|hdrip|bluray|webrip)\b', text, re.IGNORECASE)
     return match.group(1) if match else None
 
-def already_contains(base: str, value: Optional[str]) -> bool:
-    if not base or not value:
-        return False
-    return normalize(value) in normalize(base)
-
 def strip_links_and_mentions_keep_text(text: str) -> str:
     if not text:
         return text
@@ -618,36 +620,27 @@ def strip_links_only(text: str) -> str:
     text = HTML_A_RE.sub(r'\1', text)
     text = URL_RE.sub("", text)
     text = MENTION_RE.sub("", text)
-    return re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'\(\s*\)', '', text)   # ()
+    text = re.sub(r'\[\s*\]', '', text)   # []
+    text = re.sub(r'\{\s*\}', '', text)   # {}
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
-def apply_block_words(text: str, raw_blocked: str) -> str:
-    if not text or not raw_blocked:
-        return text
-    items = [
-        w.strip()
-        for w in re.split(r"[,\n]+", raw_blocked)
-        if w.strip()
+def apply_block_words(caption_html: str, raw_blocked: str) -> str:
+    if not caption_html or not raw_blocked:
+        return caption_html
+    plain = caption_html
+    blocked_items = [
+        item.strip()
+        for item in re.split(r"[,\n]+", raw_blocked)
+        if item.strip()
     ]
-    clean_text = text
-    for w in items:
-        pattern = rf"""
-            (?<!\w)              # left boundary
-            [\(\[\{{]*\s*        # optional opening brackets
-            {re.escape(w)}
-            \s*[\)\]\}}]*        # optional closing brackets
-            (?!\w)               # right boundary
-        """
-        clean_text = re.sub(
-            pattern,
-            "",
-            clean_text,
-            flags=re.IGNORECASE | re.VERBOSE
-        )
-    clean_text = re.sub(r"[ \t]{2,}", " ", clean_text)
-    clean_text = re.sub(r"\n{3,}", "\n\n", clean_text)
-    clean_text = re.sub(r" \n", "\n", clean_text)
-    clean_text = re.sub(r"\n ", "\n", clean_text)
-    return clean_text.strip()
+    for item in blocked_items:
+        plain = plain.replace(item, "")
+    plain = "\n".join(line.rstrip() for line in plain.splitlines())
+    plain = "\n".join(line for line in plain.splitlines() if line.strip())
+    plain = re.sub(r"[ \t]{2,}", " ", plain)
+    return plain.strip()
 
 def parse_replace_pairs(raw):
     if not raw:
@@ -687,6 +680,17 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
+
+    active_users = (
+        set(bot_data.get("caption_set", {})) |
+        set(bot_data.get("block_words_set", {})) |
+        set(bot_data.get("replace_words_set", {})) |
+        set(bot_data.get("prefix_set", {})) |
+        set(bot_data.get("suffix_set", {}))
+    )
+
+    if user_id not in active_users:
+        return
     text = (
         message.text.html if message.text else
         message.caption.html if message.caption else
