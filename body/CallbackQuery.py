@@ -260,6 +260,7 @@ async def set_prefix_message(client, query):
     
 @Client.on_callback_query(filters.regex(r'^del_suf_(-?\d+)$'))
 async def delete_suffix_cb(client, query):
+    await fast_ack(query)
     channel_id = int(query.matches[0].group(1))
     await delete_suffix(channel_id)
     try:
@@ -270,6 +271,7 @@ async def delete_suffix_cb(client, query):
 
 @Client.on_callback_query(filters.regex(r'^del_pre_(-?\d+)$'))
 async def delete_prefix_cb(client, query):
+    await fast_ack(query)
     channel_id = int(query.matches[0].group(1))
     await delete_prefix(channel_id)
     try:
