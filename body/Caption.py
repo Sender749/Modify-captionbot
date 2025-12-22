@@ -337,14 +337,14 @@ async def reCap(client, message):
             print(f"[ERROR] Caption format error: {e}")
             new_caption = cap_template
 
+        if blocked_words_raw:
+            new_caption = apply_block_words(new_caption, blocked_words_raw)
         if link_remover_on:
             new_caption = strip_links_only(new_caption)
         if replace_raw:
             replace_pairs = parse_replace_pairs(replace_raw)
             if replace_pairs:
                 new_caption = apply_replacements(new_caption, replace_pairs)
-        if blocked_words_raw:
-            new_caption = apply_block_words(new_caption, blocked_words_raw)
         if prefix:
             new_caption = f"{prefix}\n{new_caption}".strip()
         if suffix:
@@ -417,6 +417,14 @@ def extract_language(default_caption: str) -> str:
     found_langs = {lang for lang in languages if re.search(rf'\b{re.escape(lang)}\b', default_caption, re.IGNORECASE)}
     return " ".join(sorted(found_langs, key=str.lower))
 
+def normalize_for_matching(text: str) -> str:
+    if not text:
+        return ""
+    text = HTML_A_RE.sub(r'\1', text)
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = text.replace("–", "-").replace("—", "-")
+    text = re.sub(r'\s+', ' ', text)
+    return text.lower().strip()
 
 def extract_year(default_caption: str) -> Optional[str]:
     match = re.search(r'\b(19\d{2}|20\d{2})\b', default_caption or "")
@@ -607,34 +615,30 @@ def strip_links_only(text: str) -> str:
     text = MENTION_RE.sub("", text)
     return re.sub(r'\s+', ' ', text).strip()
 
-def apply_block_words(text: str, raw_blocked: str) -> str:
-    if not text or not raw_blocked:
-        return text
-    items = [
-        w.strip()
+def apply_block_words(original_text: str, raw_blocked: str) -> str:
+    if not original_text or not raw_blocked:
+        return original_text
+    plain_text = normalize_for_matching(original_text)
+    blocked_items = [
+        normalize_for_matching(w)
         for w in re.split(r"[,\n]+", raw_blocked)
         if w.strip()
     ]
-    clean_text = text
-    for w in items:
-        pattern = rf"""
-            (?<!\w)              # left boundary
-            [\(\[\{{]*\s*        # optional opening brackets
-            {re.escape(w)}
-            \s*[\)\]\}}]*        # optional closing brackets
-            (?!\w)               # right boundary
-        """
-        clean_text = re.sub(
-            pattern,
-            "",
-            clean_text,
-            flags=re.IGNORECASE | re.VERBOSE
+    result = original_text
+    for item in blocked_items:
+        if not item:
+            continue
+        parts = re.split(r"\s+", re.escape(item))
+        flexible = r"\s*[-–—]?\s*".join(parts)
+        pattern = re.compile(
+            rf"(?i){flexible}",
+            flags=re.IGNORECASE
         )
-    clean_text = re.sub(r"[ \t]{2,}", " ", clean_text)
-    clean_text = re.sub(r"\n{3,}", "\n\n", clean_text)
-    clean_text = re.sub(r" \n", "\n", clean_text)
-    clean_text = re.sub(r"\n ", "\n", clean_text)
-    return clean_text.strip()
+        result = pattern.sub("", result)
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    result = re.sub(r"[ \t]{2,}", " ", result)
+    result = re.sub(r"\s+\n", "\n", result)
+    return result.strip()
 
 def parse_replace_pairs(raw):
     if not raw:
