@@ -283,7 +283,7 @@ async def reCap(client, message):
         if not msg.media:
             return
         chnl_id = msg.chat.id
-        default_caption = message.caption.text if message.caption else ""
+        default_caption = message.caption or ""
         file_name = None
         file_size = None
         for file_type in ("video", "audio", "document", "voice"):
@@ -337,14 +337,14 @@ async def reCap(client, message):
             print(f"[ERROR] Caption format error: {e}")
             new_caption = cap_template
 
+        if link_remover_on:
+            new_caption = strip_links_only(new_caption)
         if blocked_words_raw:
             new_caption = apply_block_words(new_caption, blocked_words_raw)
         if replace_raw:
             replace_pairs = parse_replace_pairs(replace_raw)
             if replace_pairs:
                 new_caption = apply_replacements(new_caption, replace_pairs)
-        if link_remover_on:
-            new_caption = strip_links_only(new_caption)
         if prefix:
             new_caption = f"{prefix}\n{new_caption}".strip()
         if suffix:
