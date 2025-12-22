@@ -220,7 +220,7 @@ async def suffix_prefix_menu(client, query):
 
 @Client.on_callback_query(filters.regex(r"^back_to_suffixprefix_(-?\d+)$"))
 async def back_to_suffixprefix_menu(client, query):
-    channel_id = int(query.matches[0].group(1))
+    await fast_ack(query)
     await suffix_prefix_menu(client, query)
 
 @Client.on_callback_query(filters.regex(r'^set_suf_(-?\d+)$'))
@@ -334,7 +334,7 @@ async def set_replace_words_message(client, query):
 
 @Client.on_callback_query(filters.regex(r"^back_to_replace_(-?\d+)$"))
 async def back_to_replace_menu(client, query):
-    channel_id = int(query.matches[0].group(1))
+    await fast_ack(query)
     user_id = query.from_user.id
     bot_data.get("replace_words_set", {}).pop(user_id, None)
     await set_replace_menu(client, query)
