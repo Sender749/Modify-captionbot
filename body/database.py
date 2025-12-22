@@ -58,8 +58,7 @@ async def add_user_channel(user_id: int, channel_id: int, channel_title: str):
         {"_id": user_id},
         {"$push": {"channels": {
             "channel_id": channel_id,
-            "channel_title": channel_title,
-            "verified": False   # ⬅️ new
+            "channel_title": channel_title
         }}},
         upsert=True
     )
