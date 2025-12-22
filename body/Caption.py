@@ -75,12 +75,8 @@ async def when_added_as_admin(client, chat_member_update):
 
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
 async def settings_button_handler(client, query):
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-    await user_settings(client, query.message)
-    await query.answer()
+    await fast_ack(query)
+    await user_settings(client, query.from_user)
 
 @Client.on_callback_query(filters.regex("^help$"))
 async def help_callback(client, query: CallbackQuery):
@@ -196,13 +192,13 @@ async def restart_bot(client, message):
     os.execl(sys.executable, sys.executable, *sys.argv)
 
 @Client.on_message(filters.command("settings") & filters.private)
-async def user_settings(client, message):
-    user_id = message.from_user.id
+async def user_settings(client, user):
+    user_id = user.id
     loading = await message.reply_text("🔄 Checking channels, please wait...")
     channels = await get_user_channels(user_id)
     if not channels:
         await loading.delete()
-        return await message.reply_text("You haven’t added me to any channels yet!")
+        return await client.send_message(user_id,"You haven’t added me to any channels yet!")
     valid_channels = []
     removed_titles = []
     async def check_channel(ch):
