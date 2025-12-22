@@ -75,18 +75,16 @@ async def when_added_as_admin(client, chat_member_update):
 
 
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
-async def settings_button_handler(client: Client, query: CallbackQuery):
-    class DummyMessage:
-        def __init__(self, chat, from_user):
-            self.chat = chat
-            self.from_user = from_user
-        @property
-        def id(self):
-            return None
-        async def reply_text(self, *args, **kwargs):
-            return await query.message.reply_text(*args, **kwargs)
-    dummy_msg = DummyMessage(chat=query.message.chat, from_user=query.from_user)
-    await user_settings(client, dummy_msg)
+async def settings_button_handler(client, query):
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    fake_msg = type("Msg", (), {
+        "from_user": query.from_user,
+        "reply_text": lambda *a, **k: client.send_message(query.from_user.id, *a, **k)
+    })()
+    await user_settings(client, fake_msg)
     await query.answer()
 
 @Client.on_callback_query(filters.regex("^help$"))
@@ -202,7 +200,6 @@ async def restart_bot(client, message):
     await silicon.edit("**✅️ 𝙱𝙾𝚃 𝙸𝚂 𝚁𝙴𝚂𝚃𝙰𝚁𝚃𝙴𝙳. 𝙽𝙾𝚆 𝚈𝙾𝚄 𝙲𝙰𝙽 𝚄𝚂𝙴 𝙼𝙴**")
     os.execl(sys.executable, sys.executable, *sys.argv)
 
-
 @Client.on_message(filters.command("settings") & filters.private)
 async def user_settings(client, message):
     user_id = message.from_user.id
@@ -211,45 +208,50 @@ async def user_settings(client, message):
         return await message.reply_text("You haven’t added me to any channels yet!")
     valid_channels = []
     removed_titles = []
+    updated = False
     async def check_channel(ch):
-        ch_id = ch.get("channel_id")
+        nonlocal updated
+        ch_id = ch["channel_id"]
         ch_title = ch.get("channel_title", str(ch_id))
+        if ch.get("verified"):
+            return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
         try:
             member = await client.get_chat_member(ch_id, "me")
             if _is_admin_member(member):
-                try:
-                    chat = await client.get_chat(ch_id)
-                    ch_title = getattr(chat, "title", ch_title)
-                except Exception:
-                    pass
+                await users.update_one(
+                    {"_id": user_id, "channels.channel_id": ch_id},
+                    {"$set": {"channels.$.verified": True}}
+                )
+                updated = True
                 return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
             else:
-                await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
+                await users.update_one(
+                    {"_id": user_id},
+                    {"$pull": {"channels": {"channel_id": ch_id}}}
+                )
                 return {"valid": False, "title": ch_title}
-        except (ChatAdminRequired, errors.RPCError) as e:
-            print(f"[INFO] Removing inaccessible channel {ch_id}: {e}")
-            await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
+        except Exception:
+            await users.update_one(
+                {"_id": user_id},
+                {"$pull": {"channels": {"channel_id": ch_id}}}
+            )
             return {"valid": False, "title": ch_title}
-        except Exception as ex:
-            print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
-            return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
-
     results = await asyncio.gather(*[check_channel(ch) for ch in channels])
-
     for res in results:
         if res["valid"]:
-            valid_channels.append({"channel_id": res["channel_id"], "channel_title": res["channel_title"]})
+            valid_channels.append(res)
         else:
             removed_titles.append(res["title"])
-
     if removed_titles:
-        removed_text = "• " + "\n• ".join(removed_titles)
-        await message.reply_text(f"⚠️ Removed (no admin/access):\n{removed_text}")
-
+        await message.reply_text(
+            "⚠️ Removed (no admin/access):\n• " + "\n• ".join(removed_titles)
+        )
     if not valid_channels:
         return await message.reply_text("No active channels where I am admin.")
-
-    buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
+    buttons = [
+        [InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")]
+        for ch in valid_channels
+    ]
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
     await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
 
