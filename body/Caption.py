@@ -615,30 +615,21 @@ def strip_links_only(text: str) -> str:
     text = MENTION_RE.sub("", text)
     return re.sub(r'\s+', ' ', text).strip()
 
-def apply_block_words(original_text: str, raw_blocked: str) -> str:
-    if not original_text or not raw_blocked:
-        return original_text
-    plain_text = normalize_for_matching(original_text)
+def apply_block_words(text: str, raw_blocked: str) -> str:
+    if not text or not raw_blocked:
+        return text
     blocked_items = [
-        normalize_for_matching(w)
-        for w in re.split(r"[,\n]+", raw_blocked)
-        if w.strip()
+        item for item in raw_blocked.split(",")
+        if item.strip()
     ]
-    result = original_text
+    cleaned = text
     for item in blocked_items:
-        if not item:
-            continue
-        parts = re.split(r"\s+", re.escape(item))
-        flexible = r"\s*[-–—]?\s*".join(parts)
-        pattern = re.compile(
-            rf"(?i){flexible}",
-            flags=re.IGNORECASE
-        )
-        result = pattern.sub("", result)
-    result = re.sub(r"\n{3,}", "\n\n", result)
-    result = re.sub(r"[ \t]{2,}", " ", result)
-    result = re.sub(r"\s+\n", "\n", result)
-    return result.strip()
+        cleaned = cleaned.replace(item, "")
+    cleaned = cleaned.replace("\r", "")
+    cleaned = "\n".join(line.rstrip() for line in cleaned.splitlines())
+    cleaned = "\n".join(line for line in cleaned.splitlines() if line.strip())
+    cleaned = " ".join(cleaned.split())
+    return cleaned.strip()
 
 def parse_replace_pairs(raw):
     if not raw:
