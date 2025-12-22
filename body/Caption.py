@@ -73,18 +73,13 @@ async def when_added_as_admin(client, chat_member_update):
     except Exception as e:
         print(f"[ERROR] when_added_as_admin: {e}")
 
-
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
 async def settings_button_handler(client, query):
     try:
         await query.message.delete()
     except Exception:
         pass
-    fake_msg = type("Msg", (), {
-        "from_user": query.from_user,
-        "reply_text": lambda *a, **k: client.send_message(query.from_user.id, *a, **k)
-    })()
-    await user_settings(client, fake_msg)
+    await user_settings(client, query.message)
     await query.answer()
 
 @Client.on_callback_query(filters.regex("^help$"))
@@ -203,33 +198,34 @@ async def restart_bot(client, message):
 @Client.on_message(filters.command("settings") & filters.private)
 async def user_settings(client, message):
     user_id = message.from_user.id
+    loading = await message.reply_text("🔄 Checking channels, please wait...")
     channels = await get_user_channels(user_id)
     if not channels:
         return await message.reply_text("You haven’t added me to any channels yet!")
     valid_channels = []
     removed_titles = []
-    updated = False
     async def check_channel(ch):
-        nonlocal updated
         ch_id = ch["channel_id"]
         ch_title = ch.get("channel_title", str(ch_id))
-        if ch.get("verified"):
-            return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
         try:
             member = await client.get_chat_member(ch_id, "me")
             if _is_admin_member(member):
-                await users.update_one(
-                    {"_id": user_id, "channels.channel_id": ch_id},
-                    {"$set": {"channels.$.verified": True}}
-                )
-                updated = True
-                return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
-            else:
-                await users.update_one(
-                    {"_id": user_id},
-                    {"$pull": {"channels": {"channel_id": ch_id}}}
-                )
-                return {"valid": False, "title": ch_title}
+                return {
+                    "valid": True,
+                    "channel_id": ch_id,
+                    "channel_title": ch_title
+                }
+            await users.update_one(
+                {"_id": user_id},
+                {"$pull": {"channels": {"channel_id": ch_id}}}
+            )
+            return {"valid": False, "title": ch_title}
+        except (ChatAdminRequired, errors.RPCError):
+            await users.update_one(
+                {"_id": user_id},
+                {"$pull": {"channels": {"channel_id": ch_id}}}
+            )
+            return {"valid": False, "title": ch_title}
         except Exception:
             await users.update_one(
                 {"_id": user_id},
@@ -237,11 +233,15 @@ async def user_settings(client, message):
             )
             return {"valid": False, "title": ch_title}
     results = await asyncio.gather(*[check_channel(ch) for ch in channels])
-    for res in results:
-        if res["valid"]:
-            valid_channels.append(res)
+    for r in results:
+        if r["valid"]:
+            valid_channels.append(r)
         else:
-            removed_titles.append(res["title"])
+            removed_titles.append(r["title"])
+    try:
+        await loading.delete()
+    except Exception:
+        pass
     if removed_titles:
         await message.reply_text(
             "⚠️ Removed (no admin/access):\n• " + "\n• ".join(removed_titles)
@@ -253,8 +253,10 @@ async def user_settings(client, message):
         for ch in valid_channels
     ]
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
-    await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
-
+    await message.reply_text(
+        "📋 Your added channels:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
     
 @Client.on_message(filters.command("reset") & filters.user(ADMIN))
 async def reset_db(client, message):
