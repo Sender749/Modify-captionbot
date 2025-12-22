@@ -194,7 +194,7 @@ async def restart_bot(client, message):
 @Client.on_message(filters.command("settings") & filters.private)
 async def user_settings(client, user):
     user_id = user.id
-    loading = await message.reply_text("🔄 Checking channels, please wait...")
+    loading = await client.send_message(user_id,"🔄 Checking channels, please wait...")
     channels = await get_user_channels(user_id)
     if not channels:
         await loading.delete()
