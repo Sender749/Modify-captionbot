@@ -204,7 +204,7 @@ async def set_block_words_message(client, query):
         chat_id=user_id,
         text=(
             "🚫 Send me the **blocked words** for this channel.\n"
-            "Separate words using commas or newlines.\n\n"
+            "Separate words using commas.\n\n"
             "Example:\n"
             "<code>spam, fake, scam</code>\n\n"
         ),
@@ -212,7 +212,6 @@ async def set_block_words_message(client, query):
             [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
         )
     )
-
     bot_data.setdefault("block_words_set", {})[user_id] = {
         "channel_id": channel_id,
         "instr_msg_id": instr.id
