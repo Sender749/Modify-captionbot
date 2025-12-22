@@ -337,14 +337,14 @@ async def reCap(client, message):
             print(f"[ERROR] Caption format error: {e}")
             new_caption = cap_template
 
-        if link_remover_on:
-            new_caption = strip_links_only(new_caption)
         if blocked_words_raw:
             new_caption = apply_block_words(new_caption, blocked_words_raw)
         if replace_raw:
             replace_pairs = parse_replace_pairs(replace_raw)
             if replace_pairs:
                 new_caption = apply_replacements(new_caption, replace_pairs)
+        if link_remover_on:
+            new_caption = strip_links_only(new_caption)
         if prefix:
             new_caption = f"{prefix}\n{new_caption}".strip()
         if suffix:
@@ -620,14 +620,19 @@ def strip_links_only(text: str) -> str:
     text = HTML_A_RE.sub(r'\1', text)
     text = URL_RE.sub("", text)
     text = MENTION_RE.sub("", text)
-    return re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'\(\s*\)', '', text)   # ()
+    text = re.sub(r'\[\s*\]', '', text)   # []
+    text = re.sub(r'\{\s*\}', '', text)   # {}
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
 def apply_block_words(caption_html: str, raw_blocked: str) -> str:
     if not caption_html or not raw_blocked:
         return caption_html
-    plain = html_to_plain_text(caption_html)
+    plain = caption_html
     blocked_items = [
-        item for item in raw_blocked.split(",")
+        item.strip()
+        for item in re.split(r"[,\n]+", raw_blocked)
         if item.strip()
     ]
     for item in blocked_items:
