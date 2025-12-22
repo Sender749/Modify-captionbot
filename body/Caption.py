@@ -438,15 +438,6 @@ def html_to_plain_text(text: str) -> str:
     text = re.sub(r'<[^>]+>', '', text)
     return text
 
-async def get_channel_title_fast(user_id: int, channel_id: int) -> str:
-    user = await users.find_one(
-        {"_id": user_id, "channels.channel_id": channel_id},
-        {"channels.$": 1}
-    )
-    if user and "channels" in user and user["channels"]:
-        return user["channels"][0].get("channel_title", str(channel_id))
-    return str(channel_id)
-
 def extract_year(default_caption: str) -> Optional[str]:
     match = re.search(r'\b(19\d{2}|20\d{2})\b', default_caption or "")
     return match.group(1) if match else None
