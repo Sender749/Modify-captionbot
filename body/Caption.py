@@ -283,7 +283,7 @@ async def reCap(client, message):
         if not msg.media:
             return
         chnl_id = msg.chat.id
-        default_caption = message.caption.html if message.caption else ""
+        default_caption = message.caption.text if message.caption else ""
         file_name = None
         file_size = None
         for file_type in ("video", "audio", "document", "voice"):
@@ -339,12 +339,12 @@ async def reCap(client, message):
 
         if blocked_words_raw:
             new_caption = apply_block_words(new_caption, blocked_words_raw)
-        if link_remover_on:
-            new_caption = strip_links_only(new_caption)
         if replace_raw:
             replace_pairs = parse_replace_pairs(replace_raw)
             if replace_pairs:
                 new_caption = apply_replacements(new_caption, replace_pairs)
+        if link_remover_on:
+            new_caption = strip_links_only(new_caption)
         if prefix:
             new_caption = f"{prefix}\n{new_caption}".strip()
         if suffix:
@@ -425,6 +425,13 @@ def normalize_for_matching(text: str) -> str:
     text = text.replace("–", "-").replace("—", "-")
     text = re.sub(r'\s+', ' ', text)
     return text.lower().strip()
+
+def html_to_plain_text(text: str) -> str:
+    if not text:
+        return ""
+    text = HTML_A_RE.sub(r'\1', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    return text
 
 def extract_year(default_caption: str) -> Optional[str]:
     match = re.search(r'\b(19\d{2}|20\d{2})\b', default_caption or "")
@@ -615,21 +622,20 @@ def strip_links_only(text: str) -> str:
     text = MENTION_RE.sub("", text)
     return re.sub(r'\s+', ' ', text).strip()
 
-def apply_block_words(text: str, raw_blocked: str) -> str:
-    if not text or not raw_blocked:
-        return text
+def apply_block_words(caption_html: str, raw_blocked: str) -> str:
+    if not caption_html or not raw_blocked:
+        return caption_html
+    plain = html_to_plain_text(caption_html)
     blocked_items = [
         item for item in raw_blocked.split(",")
         if item.strip()
     ]
-    cleaned = text
     for item in blocked_items:
-        cleaned = cleaned.replace(item, "")
-    cleaned = cleaned.replace("\r", "")
-    cleaned = "\n".join(line.rstrip() for line in cleaned.splitlines())
-    cleaned = "\n".join(line for line in cleaned.splitlines() if line.strip())
-    cleaned = " ".join(cleaned.split())
-    return cleaned.strip()
+        plain = plain.replace(item, "")
+    plain = "\n".join(line.rstrip() for line in plain.splitlines())
+    plain = "\n".join(line for line in plain.splitlines() if line.strip())
+    plain = re.sub(r"[ \t]{2,}", " ", plain)
+    return plain.strip()
 
 def parse_replace_pairs(raw):
     if not raw:
