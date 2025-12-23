@@ -12,6 +12,7 @@ from Script import script
 from body.database import *  
 from body.database import insert_user_check_new
 
+USER_LOCKS = {}
 bot_data = {
     "caption_set": {},
     "block_words_set": {},
@@ -301,7 +302,7 @@ async def reCap(client, message):
             return
 
         # Fetch channel settings
-        cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
+        cap_doc = await get_channel_cached(chnl_id) or {}
         cap_template = cap_doc.get("caption") or "{file_name} ({file_size})"
         link_remover_on = bool(cap_doc.get("link_remover", False))
         blocked_words_raw = cap_doc.get("block_words", "")
@@ -681,114 +682,145 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 async def capture_user_input(client, message):
     user_id = message.from_user.id
 
-    active_users = (
-        set(bot_data.get("caption_set", {})) |
-        set(bot_data.get("block_words_set", {})) |
-        set(bot_data.get("replace_words_set", {})) |
-        set(bot_data.get("prefix_set", {})) |
-        set(bot_data.get("suffix_set", {}))
-    )
-
-    if user_id not in active_users:
-        return
-    text = (
-        message.text.html if message.text else
-        message.caption.html if message.caption else
-        ""
-    )
-    if not text.strip():
+    if USER_LOCKS.get(user_id):
         return
 
-     # --- Caption ---
-    if user_id in bot_data.get("caption_set", {}):
-        session = bot_data["caption_set"][user_id]
-        channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-        await updateCap(channel_id, text)
-        bot_data["caption_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
-        await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
-        return
+    USER_LOCKS[user_id] = True
+    try:
+        active_users = (
+            set(bot_data.get("caption_set", {})) |
+            set(bot_data.get("block_words_set", {})) |
+            set(bot_data.get("replace_words_set", {})) |
+            set(bot_data.get("prefix_set", {})) |
+            set(bot_data.get("suffix_set", {}))
+        )
 
-    # --- Block words ---
-    if user_id in bot_data.get("block_words_set", {}):
-        session = bot_data["block_words_set"][user_id]
-        channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-        raw_text = text.strip()
-        old_words = await get_block_words(channel_id)
-        if old_words:
-            combined = old_words.rstrip() + "\n" + raw_text
-        else:
-            combined = raw_text
-        await set_block_words(channel_id, combined)
-        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
-        await client.send_message(user_id,f"✅ Blocked words updated!",reply_markup=InlineKeyboardMarkup(buttons))
-        bot_data["block_words_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        return
+        if user_id not in active_users:
+            return
 
-    # --- Replace words ---
-    if user_id in bot_data.get("replace_words_set", {}):
-        session = bot_data["replace_words_set"][user_id]
-        channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-        pairs = parse_replace_pairs(text)
-        if text:
+        text = (
+            message.text.html if message.text else
+            message.caption.html if message.caption else
+            ""
+        )
+        if not text.strip():
+            return
+
+        # -------- Caption --------
+        if user_id in bot_data.get("caption_set", {}):
+            session = bot_data["caption_set"].pop(user_id)
+            channel_id = session["channel_id"]
+            manual_msg_id = session["manual_msg_id"]
+            await updateCap(channel_id, text)
+            try:
+                await client.delete_messages(user_id, message.id)
+            except Exception:
+                pass
+            await client.edit_message_text(
+                chat_id=user_id,
+                message_id=manual_msg_id,
+                "✅ Caption updated!",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
+                )
+            )
+            return
+
+        # -------- Block Words --------
+        if user_id in bot_data.get("block_words_set", {}):
+            session = bot_data["block_words_set"].pop(user_id)
+            channel_id = session["channel_id"]
+            instr_msg_id = session.get("instr_msg_id")
+
+            old_words = await get_block_words(channel_id)
+            combined = f"{old_words.rstrip()}\n{text.strip()}" if old_words else text.strip()
+            await set_block_words(channel_id, combined)
+
+            try:
+                await client.delete_messages(user_id, [message.id, instr_msg_id])
+            except Exception:
+                pass
+
+            await client.send_message(
+                user_id,
+                "✅ Blocked words updated!",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
+                )
+            )
+            return
+
+        # -------- Replace Words --------
+        if user_id in bot_data.get("replace_words_set", {}):
+            session = bot_data["replace_words_set"].pop(user_id)
+            channel_id = session["channel_id"]
+            instr_msg_id = session.get("instr_msg_id")
+
             old_replace = await get_replace_words(channel_id)
-            if old_replace:
-                combined = old_replace.rstrip() + "\n" + text.strip()
-            else:
-                combined = text.strip()
+            combined = f"{old_replace.rstrip()}\n{text.strip()}" if old_replace else text.strip()
             await set_replace_words(channel_id, combined)
-            formatted_pairs = [f"{old} → {new}" for old, new in pairs]
-            buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
-            await client.send_message(user_id,f"✅ Replace words updated!\n🚫 {', '.join(formatted_pairs)}",reply_markup=InlineKeyboardMarkup(buttons))
-        bot_data["replace_words_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        return
 
-    # --- Prefix / Suffix ---
-    if user_id in bot_data.get("prefix_set", {}):
-        session = bot_data["prefix_set"][user_id]
-        channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-        old_suffix, old_prefix = await get_suffix_prefix(channel_id)
-        if old_prefix:
-            text = old_prefix.rstrip() + "\n" + text.strip()
-        await set_prefix(channel_id, text)
-        bot_data["prefix_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
-        await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
-        return
+            try:
+                await client.delete_messages(user_id, [message.id, instr_msg_id])
+            except Exception:
+                pass
 
-    if user_id in bot_data.get("suffix_set", {}):
-        session = bot_data["suffix_set"][user_id]
-        channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-        old_suffix, old_prefix = await get_suffix_prefix(channel_id)
-        if old_suffix:
-            text = old_suffix.rstrip() + "\n" + text.strip()
-        await set_suffix(channel_id, text)
-        bot_data["suffix_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
-        await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
-        return
+            await client.send_message(
+                user_id,
+                "✅ Replace words updated!",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
+                )
+            )
+            return
+
+        # -------- Prefix --------
+        if user_id in bot_data.get("prefix_set", {}):
+            session = bot_data["prefix_set"].pop(user_id)
+            channel_id = session["channel_id"]
+            instr_msg_id = session.get("instr_msg_id")
+
+            _, old_prefix = await get_suffix_prefix(channel_id)
+            final_text = f"{old_prefix.rstrip()}\n{text.strip()}" if old_prefix else text.strip()
+            await set_prefix(channel_id, final_text)
+
+            try:
+                await client.delete_messages(user_id, [message.id, instr_msg_id])
+            except Exception:
+                pass
+
+            await client.send_message(
+                user_id,
+                "✅ Prefix updated!",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
+                )
+            )
+            return
+
+        # -------- Suffix --------
+        if user_id in bot_data.get("suffix_set", {}):
+            session = bot_data["suffix_set"].pop(user_id)
+            channel_id = session["channel_id"]
+            instr_msg_id = session.get("instr_msg_id")
+
+            old_suffix, _ = await get_suffix_prefix(channel_id)
+            final_text = f"{old_suffix.rstrip()}\n{text.strip()}" if old_suffix else text.strip()
+            await set_suffix(channel_id, final_text)
+
+            try:
+                await client.delete_messages(user_id, [message.id, instr_msg_id])
+            except Exception:
+                pass
+
+            await client.send_message(
+                user_id,
+                "✅ Suffix updated!",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
+                )
+            )
+            return
+
+    finally:
+        USER_LOCKS.pop(user_id, None)
