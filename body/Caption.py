@@ -194,66 +194,78 @@ async def restart_bot(client, message):
 @Client.on_message(filters.command("settings") & filters.private)
 async def user_settings(client, user):
     user_id = user.id
-    loading = await client.send_message(user_id,"🔄 Checking channels, please wait...")
+
+    loading = await client.send_message(
+        user_id,
+        "🔄 Checking channels, please wait..."
+    )
+
     channels = await get_user_channels(user_id)
     if not channels:
         await loading.delete()
-        return await client.send_message(user_id,"You haven’t added me to any channels yet!")
+        return await client.send_message(
+            user_id,
+            "You haven’t added me to any channels yet!"
+        )
+
     valid_channels = []
     removed_titles = []
+
     async def check_channel(ch):
         ch_id = ch["channel_id"]
         ch_title = ch.get("channel_title", str(ch_id))
         try:
             member = await client.get_chat_member(ch_id, "me")
             if _is_admin_member(member):
-                return {
-                    "valid": True,
-                    "channel_id": ch_id,
-                    "channel_title": ch_title
-                }
+                return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
+
             await users.update_one(
                 {"_id": user_id},
                 {"$pull": {"channels": {"channel_id": ch_id}}}
             )
             return {"valid": False, "title": ch_title}
-        except (ChatAdminRequired, errors.RPCError):
-            await users.update_one(
-                {"_id": user_id},
-                {"$pull": {"channels": {"channel_id": ch_id}}}
-            )
-            return {"valid": False, "title": ch_title}
+
         except Exception:
             await users.update_one(
                 {"_id": user_id},
                 {"$pull": {"channels": {"channel_id": ch_id}}}
             )
             return {"valid": False, "title": ch_title}
+
     results = await asyncio.gather(*[check_channel(ch) for ch in channels])
+
     for r in results:
         if r["valid"]:
             valid_channels.append(r)
         else:
             removed_titles.append(r["title"])
-    try:
-        await loading.delete()
-    except Exception:
-        pass
+
+    await loading.delete()
+
     if removed_titles:
-        await message.reply_text(
+        await client.send_message(
+            user_id,
             "⚠️ Removed (no admin/access):\n• " + "\n• ".join(removed_titles)
         )
+
     if not valid_channels:
-        return await message.reply_text("No active channels where I am admin.")
+        return await client.send_message(
+            user_id,
+            "No active channels where I am admin."
+        )
+
     buttons = [
         [InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")]
         for ch in valid_channels
     ]
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
-    await message.reply_text(
+
+    await client.send_message(
+        user_id,
         "📋 Your added channels:",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
+
     
 @Client.on_message(filters.command("reset") & filters.user(ADMIN))
 async def reset_db(client, message):
