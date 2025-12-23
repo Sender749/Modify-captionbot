@@ -23,7 +23,7 @@ async def channel_settings(client, query):
     caption = cap_doc.get("caption", "")
     prefix = cap_doc.get("prefix", "")
     suffix = cap_doc.get("suffix", "")
-    link_status = bool(cap_doc.get("link_remover", False))
+    link_status = await get_link_remover_status(channel_id)
     link_text = "Link Remover (ON)" if link_status else "Link Remover (OFF)"
     if not caption:
         caption_preview = "❌ No caption set for this channel."
