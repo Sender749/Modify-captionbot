@@ -81,9 +81,19 @@ async def auto_delete_message(msg, delay: int):
         pass
 
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
-async def settings_button_handler(client, query: CallbackQuery):
+async def settings_button_handler(client: Client, query: CallbackQuery):
+    class DummyMessage:
+        def __init__(self, chat, from_user):
+            self.chat = chat
+            self.from_user = from_user
+        @property
+        def id(self):
+            return None
+        async def reply_text(self, *args, **kwargs):
+            return await query.message.reply_text(*args, **kwargs)
+    dummy_msg = DummyMessage(chat=query.message.chat, from_user=query.from_user)
+    await user_settings(client, dummy_msg)
     await query.answer()
-    await user_settings(client, query.message)
 
 @Client.on_callback_query(filters.regex("^help$"))
 async def help_callback(client, query: CallbackQuery):
