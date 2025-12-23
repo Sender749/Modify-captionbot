@@ -1,4 +1,3 @@
-import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.enums import ParseMode
@@ -18,16 +17,21 @@ async def safe_delete(msg):
 
 @Client.on_callback_query(filters.regex(r'^chinfo_(-?\d+)$'))
 async def channel_settings(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
+
+    # Get channel info safely
+    try:
+        chat = await client.get_chat(channel_id)
+        chat_title = getattr(chat, "title", str(channel_id))
+    except Exception:
+        chat_title = str(channel_id)
 
     # Fetch link remover status
     link_status = await get_link_remover_status(channel_id)
     link_text = "Link Remover (ON)" if link_status else "Link Remover (OFF)"
 
     # Fetch caption data from DB
-    caption_data = await get_channel_cached(channel_id)
+    caption_data = await get_channel_caption(channel_id)
 
     if not caption_data or "caption" not in caption_data:
         caption_preview = "❌ No caption set for this channel."
@@ -73,11 +77,11 @@ async def channel_settings(client, query):
 # ===================== CAPTION MENU =====================
 @Client.on_callback_query(filters.regex(r'^setcap_(-?\d+)$'))
 async def set_caption_menu(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
 
-    caption_data = await get_channel_cached(channel_id)
+    caption_data = await get_channel_caption(channel_id)
     current_caption = caption_data.get("caption") if caption_data else None
     caption_display = f"📝 **Current Caption:**\n{current_caption}" if current_caption else "📝 **Current Caption:** None set yet."
 
@@ -98,11 +102,14 @@ async def set_caption_menu(client, query):
 
 @Client.on_callback_query(filters.regex(r'^setcapmsg_(-?\d+)$'))
 async def set_caption_message(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
-    bot_data.get("caption_set", {}).pop(user_id, None)
-    await query.message.edit_text(
+    if "caption_set" in bot_data and user_id in bot_data["caption_set"]:
+        bot_data["caption_set"].pop(user_id, None)
+    await safe_delete(query.message)
+
+    instr = await client.send_message(
+        chat_id=user_id,
         text=(
             "📌 Send caption for this channel\n\n"
 
@@ -135,12 +142,11 @@ async def set_caption_message(client, query):
     )
     bot_data.setdefault("caption_set", {})[user_id] = {
         "channel_id": channel_id,
-        "manual_msg_id": query.message.id
+        "instr_msg_id": instr.id
     }
 
 @Client.on_callback_query(filters.regex(r'^delcap_(-?\d+)$'))
 async def delete_caption(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     await delete_channel_caption(channel_id)
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
@@ -148,7 +154,6 @@ async def delete_caption(client, query):
 
 @Client.on_callback_query(filters.regex(r'^capfont_(-?\d+)$'))
 async def caption_font(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     current_cap = await get_channel_caption(channel_id)
     cap_txt = current_cap.get("caption") if current_cap else "No custom caption set."
@@ -161,9 +166,9 @@ async def caption_font(client, query):
 # ========== SET WORDS REMOVER MENU ==========================================
 @Client.on_callback_query(filters.regex(r"^setwords_(-?\d+)$"))
 async def set_words_menu(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
 
     blocked_words = await get_block_words(channel_id)
     if blocked_words:
@@ -191,11 +196,12 @@ async def set_words_menu(client, query):
 
 @Client.on_callback_query(filters.regex(r"^addwords_(-?\d+)$"))
 async def set_block_words_message(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
     bot_data.get("block_words_set", {}).pop(user_id, None)
-    await query.message.edit_text(
+    await safe_delete(query.message)
+    instr = await client.send_message(
+        chat_id=user_id,
         text=(
             "🚫 Send me the **blocked words** for this channel.\n"
             "Separate words using commas.\n\n"
@@ -213,7 +219,6 @@ async def set_block_words_message(client, query):
 
 @Client.on_callback_query(filters.regex(r"^back_to_blockwords_(-?\d+)$"))
 async def back_to_blockwords_menu(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
     bot_data.get("block_words_set", {}).pop(user_id, None)
@@ -222,10 +227,10 @@ async def back_to_blockwords_menu(client, query):
 
 @Client.on_callback_query(filters.regex(r"^delwords_(-?\d+)$"))
 async def delete_blocked_words(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     await delete_block_words(channel_id)
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setwords_{channel_id}")]]
     await query.message.edit_text(
         f"✅ **All blocked words deleted successfully.**\n\n📛 **Channel:** {chat_title}",
@@ -235,9 +240,9 @@ async def delete_blocked_words(client, query):
 # ======================== Suffix & Prefix Menu ==================================
 @Client.on_callback_query(filters.regex(r'^set_suffixprefix_(-?\d+)$'))
 async def suffix_prefix_menu(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
     suffix, prefix = await get_suffix_prefix(channel_id)
 
     buttons = [
@@ -249,39 +254,45 @@ async def suffix_prefix_menu(client, query):
     ]
 
     text = f"📌 Channel: {chat_title}\n\nCurrent Suffix: {suffix or 'None'}\nCurrent Prefix: {prefix or 'None'}"
-    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    await client.send_message(query.from_user.id, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex(r"^back_to_suffixprefix_(-?\d+)$"))
 async def back_to_suffixprefix_menu(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     await suffix_prefix_menu(client, query)
 
 @Client.on_callback_query(filters.regex(r'^set_suf_(-?\d+)$'))
 async def set_suffix_message(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
-    await query.message.edit_text(
+    await safe_delete(query.message)
+
+    instr = await client.send_message(
+        chat_id=user_id,
         text="🖋️ Send the suffix text you want to add to your captions.",
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
+            [[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]
         )
     )
     bot_data.setdefault("suffix_set", {})[user_id] = {
         "channel_id": channel_id,
         "instr_msg_id": instr.id
     }
-    
 @Client.on_callback_query(filters.regex(r'^set_pre_(-?\d+)$'))
 async def set_prefix_message(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
-    await query.message.edit_text(
+    await safe_delete(query.message)
+
+    instr = await client.send_message(
+        chat_id=user_id,
         text="✍️ Send the prefix text you want to add to your captions.",
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]]
+            [[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]
         )
     )
     bot_data.setdefault("prefix_set", {})[user_id] = {
@@ -290,24 +301,30 @@ async def set_prefix_message(client, query):
     }
 @Client.on_callback_query(filters.regex(r'^del_suf_(-?\d+)$'))
 async def delete_suffix_cb(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     await delete_suffix(channel_id)
-    await query.message.edit_text(query.from_user.id, "✅ Suffix deleted.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    await client.send_message(query.from_user.id, "✅ Suffix deleted.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
 
 @Client.on_callback_query(filters.regex(r'^del_pre_(-?\d+)$'))
 async def delete_prefix_cb(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     await delete_prefix(channel_id)
-    await query.message.edit_text(query.from_user.id, "✅ Prefix deleted.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    await client.send_message(query.from_user.id, "✅ Prefix deleted.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"set_suffixprefix_{channel_id}")]]))
 
 # ======================== Replace Words ==================================
 @Client.on_callback_query(filters.regex(r"^setreplace_(-?\d+)$"))
 async def set_replace_menu(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
     replace_raw = await get_replace_words(channel_id)
     if replace_raw:
         replace_text = "\n".join(
@@ -331,11 +348,12 @@ async def set_replace_menu(client, query):
 
 @Client.on_callback_query(filters.regex(r"^addreplace_(-?\d+)$"))
 async def set_replace_words_message(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
     bot_data.get("replace_words_set", {}).pop(user_id, None)
-    await query.message.edit_text(
+    await safe_delete(query.message)
+    instr = await client.send_message(
+        chat_id=user_id,
         text=(
             "🔤 Send me the **replace words** for this channel.\n"
             "Use format: `old new, another_old another_new`\n\n"
@@ -353,7 +371,6 @@ async def set_replace_words_message(client, query):
 
 @Client.on_callback_query(filters.regex(r"^back_to_replace_(-?\d+)$"))
 async def back_to_replace_menu(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     user_id = query.from_user.id
     bot_data.get("replace_words_set", {}).pop(user_id, None)
@@ -361,10 +378,10 @@ async def back_to_replace_menu(client, query):
 
 @Client.on_callback_query(filters.regex(r"^delreplace_(-?\d+)$"))
 async def delete_replace_words(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     await delete_replace_words_db(channel_id)
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setreplace_{channel_id}")]]
     await query.message.edit_text(
         f"✅ **All replace words deleted successfully.**\n\n📛 **Channel:** {chat_title}",
@@ -374,128 +391,9 @@ async def delete_replace_words(client, query):
 # ======================== Link Remover ==================================
 @Client.on_callback_query(filters.regex(r'^togglelink_(-?\d+)$'))
 async def toggle_link_remover(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     current_status = await get_link_remover_status(channel_id)
     new_status = not current_status
     await set_link_remover_status(channel_id, new_status)
     await channel_settings(client, query)
-
-# ---------------- Back Button Handler ----------------
-@Client.on_callback_query(filters.regex(r"^back_to_captionmenu_(-?\d+)$"))
-async def back_to_caption_menu(client, query):
-    await query.answer()
-    channel_id = int(query.matches[0].group(1))
-    user_id = query.from_user.id
-
-    # Clean user caption set state if exists
-    if "caption_set" in bot_data and user_id in bot_data["caption_set"]:
-        bot_data["caption_set"].pop(user_id, None)
-
-    # Load channel details
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
-
-    caption_data = await get_channel_cached(channel_id)
-    current_caption = caption_data["caption"] if caption_data else None
-    caption_display = f"📝 **Current Caption:**\n{current_caption}" if current_caption else "📝 **Current Caption:** None set yet."
-
-    # Buttons same as your menu
-    buttons = [
-        [InlineKeyboardButton("🆕 Set Caption", callback_data=f"setcapmsg_{channel_id}"),
-         InlineKeyboardButton("❌ Delete Caption", callback_data=f"delcap_{channel_id}")],
-        [InlineKeyboardButton("🔤 Caption Font", callback_data=f"capfont_{channel_id}")],
-        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
-    ]
-
-    await query.message.edit_text(
-        f"⚙️ **Channel:** {chat_title}\n{caption_display}\n\nChoose what you want to do 👇",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-@Client.on_callback_query(filters.regex(r"^back_to_blockwords_(-?\d+)$"))
-async def back_to_blockwords_menu(client, query):
-    await query.answer()
-    channel_id = int(query.matches[0].group(1))
-    user_id = query.from_user.id
-
-    if "block_words_set" in bot_data and user_id in bot_data["block_words_set"]:
-        bot_data["block_words_set"].pop(user_id, None)
-
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
-
-    blocked_words = await get_block_words(channel_id)
-    words_text = blocked_words if blocked_words else "None set yet."
-
-    text = (
-        f"📛 **Channel:** {chat_title}\n\n"
-        f"🚫 **Blocked Words:**\n{words_text}\n\n"
-        f"Choose what you want to do 👇"
-    )
-
-    buttons = [
-        [InlineKeyboardButton("📝 Set Block Words", callback_data=f"addwords_{channel_id}"),
-         InlineKeyboardButton("🗑️ Delete Block Words", callback_data=f"delwords_{channel_id}")],
-        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
-    ]
-
-    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-
-@Client.on_callback_query(filters.regex(r"^back_to_replace_(-?\d+)$"))
-async def back_to_replace_menu(client, query):
-    await query.answer()
-    channel_id = int(query.matches[0].group(1))
-    user_id = query.from_user.id
-    if "replace_words_set" in bot_data and user_id in bot_data["replace_words_set"]:
-        bot_data["replace_words_set"].pop(user_id, None)
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
-    replace_raw = await get_replace_words(channel_id)
-    if replace_raw:
-        replace_text = "\n".join(
-            line.strip()
-            for line in replace_raw.splitlines()
-            if line.strip()
-        )
-    else:
-        replace_text = "None set yet."
-    text = (
-        f"📛 **Channel:** {chat_title}\n\n"
-        f"🔤 **Replace Words:**\n{replace_text}\n\n"
-        f"Choose what you want to do 👇"
-    )
-    buttons = [
-        [InlineKeyboardButton("📝 Set Replace Words", callback_data=f"addreplace_{channel_id}"),
-         InlineKeyboardButton("🗑️ Delete Replace Words", callback_data=f"delreplace_{channel_id}")],
-        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
-    ]
-    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-
-@Client.on_callback_query(filters.regex(r"^back_to_suffixprefix_(-?\d+)$"))
-async def back_to_suffixprefix_menu(client, query):
-    await query.answer()
-    channel_id = int(query.matches[0].group(1))
-    user_id = query.from_user.id
-
-    if "suffix_set" in bot_data and user_id in bot_data["suffix_set"]:
-        bot_data["suffix_set"].pop(user_id, None)
-    if "prefix_set" in bot_data and user_id in bot_data["prefix_set"]:
-        bot_data["prefix_set"].pop(user_id, None)
-
-    suffix, prefix = await get_suffix_prefix(channel_id)
-    chat_title = await get_channel_title_fast(query.from_user.id, channel_id)
-
-    buttons = [
-        [InlineKeyboardButton("Set Suffix", callback_data=f"set_suf_{channel_id}"),
-         InlineKeyboardButton("Del Suffix", callback_data=f"del_suf_{channel_id}")],
-        [InlineKeyboardButton("Set Prefix", callback_data=f"set_pre_{channel_id}"),
-         InlineKeyboardButton("Del Prefix", callback_data=f"del_pre_{channel_id}")],
-        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
-    ]
-
-    text = (
-        f"📌 Channel: {chat_title}\n\n"
-        f"Current Suffix: {suffix or 'None'}\n"
-        f"Current Prefix: {prefix or 'None'}"
-    )
-
-    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
