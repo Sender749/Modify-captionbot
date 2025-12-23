@@ -380,11 +380,9 @@ async def delete_replace_words(client, query):
 # ======================== Link Remover ==================================
 @Client.on_callback_query(filters.regex(r'^togglelink_(-?\d+)$'))
 async def toggle_link_remover(client, query):
-    await query.answer()
     channel_id = int(query.matches[0].group(1))
     current_status = await get_link_remover_status(channel_id)
     new_status = not current_status
     await set_link_remover_status(channel_id, new_status)
-    _CHANNEL_CACHE.pop(channel_id, None)
     await channel_settings(client, query)
 
