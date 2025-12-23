@@ -368,7 +368,7 @@ async def reCap(client, message):
             except Exception:
                 break
     # Run asynchronously
-    await process_message(message)
+    asyncio.create_task(process_message(message))
 
 
 # ---------------- Helper functions ----------------
