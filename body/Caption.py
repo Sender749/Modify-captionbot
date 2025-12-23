@@ -75,8 +75,7 @@ async def when_added_as_admin(client, chat_member_update):
 
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
 async def settings_button_handler(client, query):
-    await fast_ack(query)
-    await user_settings(client, query.from_user)
+    await user_settings(client, query.message)
 
 @Client.on_callback_query(filters.regex("^help$"))
 async def help_callback(client, query: CallbackQuery):
@@ -193,8 +192,7 @@ async def restart_bot(client, message):
 
 @Client.on_message(filters.command("settings") & filters.private)
 async def user_settings(client, user):
-    user_id = user.id
-
+    user_id = message.from_user.id
     loading = await client.send_message(
         user_id,
         "🔄 Checking channels, please wait..."
