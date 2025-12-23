@@ -10,8 +10,9 @@ from pyrogram.enums import ParseMode
 from info import *
 from Script import script
 from body.database import *  
-from body.database import insert_user_check_new
+from body.database import insert_user_check_new, get_channel_cached
 
+CHANNEL_CACHE = {}
 bot_data = {
     "caption_set": {},
     "block_words_set": {},
@@ -66,31 +67,27 @@ async def when_added_as_admin(client, chat_member_update):
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
             except Exception as e:
                 print(f"[WARN] Failed to send log message: {e}")
-            await asyncio.sleep(60)
-            await msg.delete()
+            asyncio.create_task(auto_delete_message(msg, 60))
         except Exception as e:
             print(f"[WARN] Could not notify user: {e}")
     except Exception as e:
         print(f"[ERROR] when_added_as_admin: {e}")
 
+async def auto_delete_message(msg, delay: int):
+    await asyncio.sleep(delay)
+    try:
+        await msg.delete()
+    except:
+        pass
 
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
-async def settings_button_handler(client: Client, query: CallbackQuery):
-    class DummyMessage:
-        def __init__(self, chat, from_user):
-            self.chat = chat
-            self.from_user = from_user
-        @property
-        def id(self):
-            return None
-        async def reply_text(self, *args, **kwargs):
-            return await query.message.reply_text(*args, **kwargs)
-    dummy_msg = DummyMessage(chat=query.message.chat, from_user=query.from_user)
-    await user_settings(client, dummy_msg)
+async def settings_button_handler(client, query: CallbackQuery):
     await query.answer()
+    await user_settings(client, query.message)
 
 @Client.on_callback_query(filters.regex("^help$"))
 async def help_callback(client, query: CallbackQuery):
+    await query.answer()
     bot_me = await client.get_me()
     bot_username = bot_me.username
     keyboard = InlineKeyboardMarkup([
@@ -102,14 +99,6 @@ async def help_callback(client, query: CallbackQuery):
         reply_markup=keyboard,
         disable_web_page_preview=True
     )
-
-@Client.on_callback_query(filters.regex("^start$"))
-async def back_to_start(client, query: CallbackQuery):
-    try:
-        await query.message.delete()
-    except Exception as e:
-        print(f"[WARN] Could not delete previous message: {e}")
-    await start_cmd(client, query.message)
 
 
 # ---------------- Commands ----------------
@@ -166,7 +155,7 @@ async def broadcast(client, message):
         await silicon.edit("ʙʀᴏᴀᴅᴄᴀsᴛɪɴɢ...")
         for user in all_users:
             try:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.2)
                 await message.reply_to_message.copy(user["_id"])
                 success += 1
             except errors.InputUserDeactivated:
@@ -253,6 +242,13 @@ async def user_settings(client, message):
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
     await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
 
+@Client.on_callback_query(filters.regex("^close_msg$"))
+async def close_message(client, query):
+    await query.answer()
+    try:
+        await query.message.delete()
+    except:
+        pass
     
 @Client.on_message(filters.command("reset") & filters.user(ADMIN))
 async def reset_db(client, message):
@@ -261,6 +257,7 @@ async def reset_db(client, message):
     await users.delete_many({})
     await chnl_ids.delete_many({})
     await user_channels.delete_many({})
+    CHANNEL_CACHE.clear()
 
     await message.reply_text("✅ All database records have been deleted successfully!")
 
@@ -276,100 +273,89 @@ def sanitize_caption_html(text: str) -> str:
     return re.sub(r"</?\s*([a-zA-Z0-9]+)(?:\s[^>]*)?>", repl, text)
 
 @Client.on_message(filters.channel & filters.media)
-async def reCap(client, message):
-    async def process_message(msg):
-        if message.edit_date:
-            return
-        if not msg.media:
-            return
-        chnl_id = msg.chat.id
-        default_caption = message.caption or ""
-        file_name = None
-        file_size = None
-        for file_type in ("video", "audio", "document", "voice"):
-            obj = getattr(msg, file_type, None)
-            if obj:
-                file_name = getattr(obj, "file_name", None)
-                if not file_name and file_type == "voice":
-                    file_name = "Voice Message"
-                elif not file_name:
-                    file_name = "File"
-                file_name = file_name.replace("_", " ").replace(".", " ")
-                file_size = get_size(getattr(obj, "file_size", 0))
-                break
-        if not file_name:
-            return
-
-        # Fetch channel settings
-        cap_doc = await chnl_ids.find_one({"chnl_id": chnl_id}) or {}
-        cap_template = cap_doc.get("caption") or "{file_name} ({file_size})"
-        link_remover_on = bool(cap_doc.get("link_remover", False))
-        blocked_words_raw = cap_doc.get("block_words", "")
-        suffix = cap_doc.get("suffix", "") or ""
-        prefix = cap_doc.get("prefix", "") or ""
-        replace_raw = cap_doc.get("replace_words", None)
-
-        # Extract info from caption
-        language = extract_language(default_caption)
-        year = extract_year(default_caption)
-
-        # Build caption
-        try:
-            raw_file_name = normalize_series_name(file_name)
-            smart_file_name = ""
-            if "{smart_file_name}" in cap_template:
-                smart_file_name = build_smart_filename(
-                    base_name=raw_file_name,
-                    default_caption=default_caption,
-                    year=year,
-                    language=language
-                )
-
-            new_caption = cap_template.format(
-                file_name=raw_file_name,
-                smart_file_name=smart_file_name,
-                file_size=file_size,
+async def reCap(client, msg):
+    if msg.edit_date or not msg.media:
+        return
+    chnl_id = msg.chat.id
+    default_caption = msg.caption or ""
+    file_name = None
+    file_size = None
+    for file_type in ("video", "audio", "document", "voice"):
+        obj = getattr(msg, file_type, None)
+        if obj:
+            file_name = getattr(obj, "file_name", None)
+            if not file_name and file_type == "voice":
+                file_name = "Voice Message"
+            elif not file_name:
+                file_name = "File"
+            file_name = file_name.replace("_", " ").replace(".", " ")
+            file_size = get_size(getattr(obj, "file_size", 0))
+            break
+    if not file_name:
+        return
+    # Fetch channel settings
+    cap_doc = await get_channel_cached(chnl_id)
+    cap_template = cap_doc.get("caption") or "{file_name} ({file_size})"
+    link_remover_on = bool(cap_doc.get("link_remover", False))
+    blocked_words_raw = cap_doc.get("block_words", "")
+    suffix = cap_doc.get("suffix", "") or ""
+    prefix = cap_doc.get("prefix", "") or ""
+    replace_raw = cap_doc.get("replace_words", None)
+    # Extract info from caption
+    language = extract_language(default_caption)
+    year = extract_year(default_caption)
+    # Build caption
+    try:
+        raw_file_name = normalize_series_name(file_name)
+        smart_file_name = ""
+        if "{smart_file_name}" in cap_template:
+            smart_file_name = build_smart_filename(
+                base_name=raw_file_name,
                 default_caption=default_caption,
-                language=language or "",
-                year=year or ""
-             )
-        except Exception as e:
-            print(f"[ERROR] Caption format error: {e}")
-            new_caption = cap_template
-
-        if blocked_words_raw:
-            new_caption = apply_block_words(new_caption, blocked_words_raw)
-        if replace_raw:
-            replace_pairs = parse_replace_pairs(replace_raw)
-            if replace_pairs:
-                new_caption = apply_replacements(new_caption, replace_pairs)
-        if link_remover_on:
-            new_caption = strip_links_only(new_caption)
-        if prefix:
-            new_caption = f"{prefix}\n{new_caption}".strip()
-        if suffix:
-            new_caption = f"{new_caption}\n{suffix}".strip()
-
-        # Clean caption
-        new_caption = new_caption.strip()
-        if "<" in new_caption and ">" in new_caption:
-            new_caption = sanitize_caption_html(new_caption)
-
-
-        # Try editing caption (with FloodWait retry)
-        for _ in range(2):
-            try:
-                await msg.edit_caption(new_caption, parse_mode=ParseMode.HTML)
-                break
-            except errors.FloodWait as e:
-                await asyncio.sleep(e.value)
-            except errors.MessageNotModified:
-                break
-            except Exception:
-                break
-    # Run asynchronously
-    await process_message(message)
-
+                year=year,
+                language=language
+            )
+        new_caption = cap_template.format(
+            file_name=raw_file_name,
+            smart_file_name=smart_file_name,
+            file_size=file_size,
+            default_caption=default_caption,
+            language=language or "",
+            year=year or ""
+        )
+    except Exception as e:
+        print(f"[ERROR] Caption format error: {e}")
+        new_caption = cap_template
+    if blocked_words_raw:
+        new_caption = apply_block_words(new_caption, blocked_words_raw)
+    if replace_raw:
+        replace_pairs = parse_replace_pairs(replace_raw)
+        if replace_pairs:
+            new_caption = apply_replacements(new_caption, replace_pairs)
+    if link_remover_on:
+        new_caption = strip_links_only(new_caption)
+    if prefix:
+        new_caption = f"{prefix}\n{new_caption}".strip()
+    if suffix:
+        new_caption = f"{new_caption}\n{suffix}".strip()
+    # Clean caption
+    new_caption = new_caption.strip()
+    if "<" in new_caption and ">" in new_caption:
+        new_caption = sanitize_caption_html(new_caption)
+    # Try editing caption (with FloodWait + fallback)
+    for _ in range(2):
+        try:
+            await msg.edit_caption(new_caption, parse_mode=ParseMode.HTML)
+            break
+        except errors.BadRequest:
+            await msg.edit_caption(strip_links_and_mentions_keep_text(new_caption))
+            break
+        except errors.FloodWait as e:
+            await asyncio.sleep(e.value)
+        except errors.MessageNotModified:
+            break
+        except Exception:
+            break
 
 # ---------------- Helper functions ----------------
 def _status_name(member_obj):
@@ -680,7 +666,6 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
-
     active_users = (
         set(bot_data.get("caption_set", {})) |
         set(bot_data.get("block_words_set", {})) |
@@ -688,7 +673,6 @@ async def capture_user_input(client, message):
         set(bot_data.get("prefix_set", {})) |
         set(bot_data.get("suffix_set", {}))
     )
-
     if user_id not in active_users:
         return
     text = (
@@ -699,97 +683,102 @@ async def capture_user_input(client, message):
     if not text.strip():
         return
 
-     # --- Caption ---
-    if user_id in bot_data.get("caption_set", {}):
-        session = bot_data["caption_set"][user_id]
+    # ---------- CAPTION ----------
+    if user_id in bot_data["caption_set"]:
+        session = bot_data["caption_set"].pop(user_id)
         channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
+        instr_msg_id = session["instr_msg_id"]
         await updateCap(channel_id, text)
-        bot_data["caption_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
-        await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
+        if channel_id in CHANNEL_CACHE:
+            CHANNEL_CACHE[channel_id]["caption"] = text
+        await client.delete_messages(user_id, message.id)
+        await client.edit_message_text(
+            chat_id=user_id,
+            message_id=instr_msg_id,
+            text="✅ Caption updated successfully!",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_captionmenu_{channel_id}")]]
+            )
+        )
         return
 
-    # --- Block words ---
-    if user_id in bot_data.get("block_words_set", {}):
-        session = bot_data["block_words_set"][user_id]
+    # ---------- BLOCK WORDS ----------
+    if user_id in bot_data["block_words_set"]:
+        session = bot_data["block_words_set"].pop(user_id)
         channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-        raw_text = text.strip()
+        instr_msg_id = session["instr_msg_id"]
         old_words = await get_block_words(channel_id)
-        if old_words:
-            combined = old_words.rstrip() + "\n" + raw_text
-        else:
-            combined = raw_text
+        combined = f"{old_words.rstrip()}\n{text.strip()}" if old_words else text.strip()
         await set_block_words(channel_id, combined)
-        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
-        await client.send_message(user_id,f"✅ Blocked words updated!",reply_markup=InlineKeyboardMarkup(buttons))
-        bot_data["block_words_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
+        await client.delete_messages(user_id, message.id)
+        await client.edit_message_text(
+            chat_id=user_id,
+            message_id=instr_msg_id,
+            text="✅ Blocked words updated!",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_blockwords_{channel_id}")]]
+            )
+        )
         return
 
-    # --- Replace words ---
-    if user_id in bot_data.get("replace_words_set", {}):
-        session = bot_data["replace_words_set"][user_id]
+    # ---------- REPLACE WORDS ----------
+    if user_id in bot_data["replace_words_set"]:
+        session = bot_data["replace_words_set"].pop(user_id)
         channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-        pairs = parse_replace_pairs(text)
-        if text:
-            old_replace = await get_replace_words(channel_id)
-            if old_replace:
-                combined = old_replace.rstrip() + "\n" + text.strip()
-            else:
-                combined = text.strip()
-            await set_replace_words(channel_id, combined)
-            formatted_pairs = [f"{old} → {new}" for old, new in pairs]
-            buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
-            await client.send_message(user_id,f"✅ Replace words updated!\n🚫 {', '.join(formatted_pairs)}",reply_markup=InlineKeyboardMarkup(buttons))
-        bot_data["replace_words_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
+        instr_msg_id = session["instr_msg_id"]
+        old_replace = await get_replace_words(channel_id)
+        combined = f"{old_replace.rstrip()}\n{text.strip()}" if old_replace else text.strip()
+        await set_replace_words(channel_id, combined)
+        await client.delete_messages(user_id, message.id)
+        await client.edit_message_text(
+            chat_id=user_id,
+            message_id=instr_msg_id,
+            text="✅ Replace words updated!",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_replace_{channel_id}")]]
+            )
+        )
         return
 
-    # --- Prefix / Suffix ---
-    if user_id in bot_data.get("prefix_set", {}):
-        session = bot_data["prefix_set"][user_id]
+    # ---------- PREFIX ----------
+    if user_id in bot_data["prefix_set"]:
+        session = bot_data["prefix_set"].pop(user_id)
         channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
+        instr_msg_id = session["instr_msg_id"]
         old_suffix, old_prefix = await get_suffix_prefix(channel_id)
-        if old_prefix:
-            text = old_prefix.rstrip() + "\n" + text.strip()
-        await set_prefix(channel_id, text)
-        bot_data["prefix_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
-        await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
+        final_text = f"{old_prefix.rstrip()}\n{text.strip()}" if old_prefix else text.strip()
+        await set_prefix(channel_id, final_text)
+        if channel_id in CHANNEL_CACHE:
+            CHANNEL_CACHE[channel_id]["prefix"] = final_text
+        await client.delete_messages(user_id, message.id)
+        await client.edit_message_text(
+            chat_id=user_id,
+            message_id=instr_msg_id,
+            text="✅ Prefix updated!",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
+            )
+        )
         return
 
-    if user_id in bot_data.get("suffix_set", {}):
-        session = bot_data["suffix_set"][user_id]
+    # ---------- SUFFIX ----------
+    if user_id in bot_data["suffix_set"]:
+        session = bot_data["suffix_set"].pop(user_id)
         channel_id = session["channel_id"]
-        instr_msg_id = session.get("instr_msg_id")
-        old_suffix, old_prefix = await get_suffix_prefix(channel_id)
-        if old_suffix:
-            text = old_suffix.rstrip() + "\n" + text.strip()
-        await set_suffix(channel_id, text)
-        bot_data["suffix_set"].pop(user_id, None)
-        try:
-            await client.delete_messages(user_id, [message.id, instr_msg_id])
-        except Exception:
-            pass
-        buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
-        await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
+        instr_msg_id = session["instr_msg_id"]
+        old_suffix, _ = await get_suffix_prefix(channel_id)
+        final_text = f"{old_suffix.rstrip()}\n{text.strip()}" if old_suffix else text.strip()
+        await set_suffix(channel_id, final_text)
+        if channel_id in CHANNEL_CACHE:
+            CHANNEL_CACHE[channel_id]["suffix"] = final_text
+        await client.delete_messages(user_id, message.id)
+        await client.edit_message_text(
+            chat_id=user_id,
+            message_id=instr_msg_id,
+            text="✅ Suffix updated!",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
+            )
+        )
         return
 
