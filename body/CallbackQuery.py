@@ -385,5 +385,6 @@ async def toggle_link_remover(client, query):
     current_status = await get_link_remover_status(channel_id)
     new_status = not current_status
     await set_link_remover_status(channel_id, new_status)
+    _CHANNEL_CACHE.pop(channel_id, None)
     await channel_settings(client, query)
 
