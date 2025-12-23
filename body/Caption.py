@@ -73,9 +73,21 @@ async def when_added_as_admin(client, chat_member_update):
     except Exception as e:
         print(f"[ERROR] when_added_as_admin: {e}")
 
+
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
-async def settings_button_handler(client, query):
-    await user_settings(client, query.message)
+async def settings_button_handler(client: Client, query: CallbackQuery):
+    class DummyMessage:
+        def __init__(self, chat, from_user):
+            self.chat = chat
+            self.from_user = from_user
+        @property
+        def id(self):
+            return None
+        async def reply_text(self, *args, **kwargs):
+            return await query.message.reply_text(*args, **kwargs)
+    dummy_msg = DummyMessage(chat=query.message.chat, from_user=query.from_user)
+    await user_settings(client, dummy_msg)
+    await query.answer()
 
 @Client.on_callback_query(filters.regex("^help$"))
 async def help_callback(client, query: CallbackQuery):
@@ -190,79 +202,56 @@ async def restart_bot(client, message):
     await silicon.edit("**✅️ 𝙱𝙾𝚃 𝙸𝚂 𝚁𝙴𝚂𝚃𝙰𝚁𝚃𝙴𝙳. 𝙽𝙾𝚆 𝚈𝙾𝚄 𝙲𝙰𝙽 𝚄𝚂𝙴 𝙼𝙴**")
     os.execl(sys.executable, sys.executable, *sys.argv)
 
-@Client.on_message(filters.command("settings") & filters.private)
-async def user_settings(client, user):
-    user_id = message.from_user.id
-    loading = await client.send_message(
-        user_id,
-        "🔄 Checking channels, please wait..."
-    )
 
+@Client.on_message(filters.command("settings") & filters.private)
+async def user_settings(client, message):
+    user_id = message.from_user.id
     channels = await get_user_channels(user_id)
     if not channels:
-        await loading.delete()
-        return await client.send_message(
-            user_id,
-            "You haven’t added me to any channels yet!"
-        )
-
+        return await message.reply_text("You haven’t added me to any channels yet!")
     valid_channels = []
     removed_titles = []
-
     async def check_channel(ch):
-        ch_id = ch["channel_id"]
+        ch_id = ch.get("channel_id")
         ch_title = ch.get("channel_title", str(ch_id))
         try:
             member = await client.get_chat_member(ch_id, "me")
             if _is_admin_member(member):
+                try:
+                    chat = await client.get_chat(ch_id)
+                    ch_title = getattr(chat, "title", ch_title)
+                except Exception:
+                    pass
                 return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
-
-            await users.update_one(
-                {"_id": user_id},
-                {"$pull": {"channels": {"channel_id": ch_id}}}
-            )
+            else:
+                await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
+                return {"valid": False, "title": ch_title}
+        except (ChatAdminRequired, errors.RPCError) as e:
+            print(f"[INFO] Removing inaccessible channel {ch_id}: {e}")
+            await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
             return {"valid": False, "title": ch_title}
-
-        except Exception:
-            await users.update_one(
-                {"_id": user_id},
-                {"$pull": {"channels": {"channel_id": ch_id}}}
-            )
-            return {"valid": False, "title": ch_title}
+        except Exception as ex:
+            print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
+            return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
 
     results = await asyncio.gather(*[check_channel(ch) for ch in channels])
 
-    for r in results:
-        if r["valid"]:
-            valid_channels.append(r)
+    for res in results:
+        if res["valid"]:
+            valid_channels.append({"channel_id": res["channel_id"], "channel_title": res["channel_title"]})
         else:
-            removed_titles.append(r["title"])
-
-    await loading.delete()
+            removed_titles.append(res["title"])
 
     if removed_titles:
-        await client.send_message(
-            user_id,
-            "⚠️ Removed (no admin/access):\n• " + "\n• ".join(removed_titles)
-        )
+        removed_text = "• " + "\n• ".join(removed_titles)
+        await message.reply_text(f"⚠️ Removed (no admin/access):\n{removed_text}")
 
     if not valid_channels:
-        return await client.send_message(
-            user_id,
-            "No active channels where I am admin."
-        )
+        return await message.reply_text("No active channels where I am admin.")
 
-    buttons = [
-        [InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")]
-        for ch in valid_channels
-    ]
+    buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
-
-    await client.send_message(
-        user_id,
-        "📋 Your added channels:",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
 
     
 @Client.on_message(filters.command("reset") & filters.user(ADMIN))
@@ -613,6 +602,16 @@ def extract_format(text: str) -> Optional[str]:
     match = re.search(r'\b(mkv|mp4|avi|web-dl|hdrip|bluray|webrip)\b', text, re.IGNORECASE)
     return match.group(1) if match else None
 
+def strip_links_and_mentions_keep_text(text: str) -> str:
+    if not text:
+        return text
+    text = MD_LINK_RE.sub(r'\1', text)
+    text = TG_USER_LINK_RE.sub(r'\1', text)
+    text = URL_RE.sub("", text)
+    text = MENTION_RE.sub("", text)
+    text = re.sub(r'[ 	]+', ' ', text) 
+    return text
+
 def strip_links_only(text: str) -> str:
     if not text:
         return text
@@ -681,6 +680,7 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
+
     active_users = (
         set(bot_data.get("caption_set", {})) |
         set(bot_data.get("block_words_set", {})) |
@@ -688,6 +688,7 @@ async def capture_user_input(client, message):
         set(bot_data.get("prefix_set", {})) |
         set(bot_data.get("suffix_set", {}))
     )
+
     if user_id not in active_users:
         return
     text = (
@@ -698,7 +699,7 @@ async def capture_user_input(client, message):
     if not text.strip():
         return
 
-    # --- Caption ---
+     # --- Caption ---
     if user_id in bot_data.get("caption_set", {}):
         session = bot_data["caption_set"][user_id]
         channel_id = session["channel_id"]
@@ -792,3 +793,120 @@ async def capture_user_input(client, message):
         await client.send_message(user_id,"✅ Caption updated!",reply_markup=InlineKeyboardMarkup(buttons))
         return
 
+# ---------------- Back Button Handler ----------------
+@Client.on_callback_query(filters.regex(r"^back_to_captionmenu_(-?\d+)$"))
+async def back_to_caption_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    # Clean user caption set state if exists
+    if "caption_set" in bot_data and user_id in bot_data["caption_set"]:
+        bot_data["caption_set"].pop(user_id, None)
+
+    # Load channel details
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
+
+    caption_data = await get_channel_caption(channel_id)
+    current_caption = caption_data["caption"] if caption_data else None
+    caption_display = f"📝 **Current Caption:**\n{current_caption}" if current_caption else "📝 **Current Caption:** None set yet."
+
+    # Buttons same as your menu
+    buttons = [
+        [InlineKeyboardButton("🆕 Set Caption", callback_data=f"setcapmsg_{channel_id}"),
+         InlineKeyboardButton("❌ Delete Caption", callback_data=f"delcap_{channel_id}")],
+        [InlineKeyboardButton("🔤 Caption Font", callback_data=f"capfont_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    await query.message.edit_text(
+        f"⚙️ **Channel:** {chat_title}\n{caption_display}\n\nChoose what you want to do 👇",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+@Client.on_callback_query(filters.regex(r"^back_to_blockwords_(-?\d+)$"))
+async def back_to_blockwords_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    if "block_words_set" in bot_data and user_id in bot_data["block_words_set"]:
+        bot_data["block_words_set"].pop(user_id, None)
+
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
+
+    blocked_words = await get_block_words(channel_id)
+    words_text = blocked_words if blocked_words else "None set yet."
+
+    text = (
+        f"📛 **Channel:** {chat_title}\n\n"
+        f"🚫 **Blocked Words:**\n{words_text}\n\n"
+        f"Choose what you want to do 👇"
+    )
+
+    buttons = [
+        [InlineKeyboardButton("📝 Set Block Words", callback_data=f"addwords_{channel_id}"),
+         InlineKeyboardButton("🗑️ Delete Block Words", callback_data=f"delwords_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_callback_query(filters.regex(r"^back_to_replace_(-?\d+)$"))
+async def back_to_replace_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+    if "replace_words_set" in bot_data and user_id in bot_data["replace_words_set"]:
+        bot_data["replace_words_set"].pop(user_id, None)
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
+    replace_raw = await get_replace_words(channel_id)
+    if replace_raw:
+        replace_text = "\n".join(
+            line.strip()
+            for line in replace_raw.splitlines()
+            if line.strip()
+        )
+    else:
+        replace_text = "None set yet."
+    text = (
+        f"📛 **Channel:** {chat_title}\n\n"
+        f"🔤 **Replace Words:**\n{replace_text}\n\n"
+        f"Choose what you want to do 👇"
+    )
+    buttons = [
+        [InlineKeyboardButton("📝 Set Replace Words", callback_data=f"addreplace_{channel_id}"),
+         InlineKeyboardButton("🗑️ Delete Replace Words", callback_data=f"delreplace_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_callback_query(filters.regex(r"^back_to_suffixprefix_(-?\d+)$"))
+async def back_to_suffixprefix_menu(client, query):
+    channel_id = int(query.matches[0].group(1))
+    user_id = query.from_user.id
+
+    if "suffix_set" in bot_data and user_id in bot_data["suffix_set"]:
+        bot_data["suffix_set"].pop(user_id, None)
+    if "prefix_set" in bot_data and user_id in bot_data["prefix_set"]:
+        bot_data["prefix_set"].pop(user_id, None)
+
+    suffix, prefix = await get_suffix_prefix(channel_id)
+    chat = await client.get_chat(channel_id)
+    chat_title = getattr(chat, "title", str(channel_id))
+
+    buttons = [
+        [InlineKeyboardButton("Set Suffix", callback_data=f"set_suf_{channel_id}"),
+         InlineKeyboardButton("Del Suffix", callback_data=f"del_suf_{channel_id}")],
+        [InlineKeyboardButton("Set Prefix", callback_data=f"set_pre_{channel_id}"),
+         InlineKeyboardButton("Del Prefix", callback_data=f"del_pre_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data=f"chinfo_{channel_id}")]
+    ]
+
+    text = (
+        f"📌 Channel: {chat_title}\n\n"
+        f"Current Suffix: {suffix or 'None'}\n"
+        f"Current Prefix: {prefix or 'None'}"
+    )
+
+    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
