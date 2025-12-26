@@ -89,18 +89,16 @@ async def auto_delete_message(msg, delay: int):
 
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
 async def settings_button_handler(client: Client, query: CallbackQuery):
-    class DummyMessage:
-        def __init__(self, chat, from_user):
-            self.chat = chat
-            self.from_user = from_user
-        @property
-        def id(self):
-            return None
-        async def reply_text(self, *args, **kwargs):
-            return await query.message.reply_text(*args, **kwargs)
-    dummy_msg = DummyMessage(chat=query.message.chat, from_user=query.from_user)
-    await user_settings(client, dummy_msg)
     await query.answer()
+
+    async def edit_sender(text, **kwargs):
+        await query.message.edit_text(text, **kwargs)
+
+    await user_settings(
+        client,
+        user=query.from_user,
+        send_func=edit_sender
+    )
 
 @Client.on_callback_query(filters.regex("^help$"))
 async def help_callback(client, query: CallbackQuery):
@@ -117,6 +115,45 @@ async def help_callback(client, query: CallbackQuery):
         disable_web_page_preview=True
     )
 
+@Client.on_callback_query(filters.regex("^start$"))
+async def back_to_start(client: Client, query: CallbackQuery):
+    await query.answer()
+    await show_start_ui(
+        client,
+        chat_id=query.message.chat.id,
+        mention=query.from_user.mention,
+        edit_message=query.message
+    )
+
+async def show_start_ui(
+    client: Client,
+    *,
+    chat_id: int,
+    mention: str,
+    edit_message=None
+):
+    bot_me = await client.get_me()
+    bot_username = bot_me.username or BOT_USERNAME
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
+            [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
+            [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69")],
+        ]
+    )
+    if edit_message:
+        await edit_message.edit_text(
+            text=script.START_TXT.format(mention=mention),
+            reply_markup=keyboard,
+            disable_web_page_preview=True
+        )
+    else:
+        await client.send_photo(
+            chat_id=chat_id,
+            photo=SILICON_PIC,
+            caption=script.START_TXT.format(mention=mention),
+            reply_markup=keyboard
+        )
 
 # ---------------- Commands ----------------
 @Client.on_message(filters.command("start") & filters.private)
@@ -127,19 +164,10 @@ async def start_cmd(client, message):
         user_name = user.first_name or "Unknown User"
         username = user.username
         is_new_user = await insert_user_check_new(user_id)
-        bot_me = await client.get_me()
-        bot_username = bot_me.username or (BOT_USERNAME if "BOT_USERNAME" in globals() else bot_me.username or "Bot")
-        keyboard = InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
-                [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
-                [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69")],
-            ]
-        )
-        await message.reply_photo(
-            photo=SILICON_PIC,
-            caption=script.START_TXT.format(mention=message.from_user.mention),
-            reply_markup=keyboard,
+        await show_start_ui(
+            client,
+            chat_id=message.chat.id,
+            mention=user.mention
         )
         if is_new_user:
             try:
@@ -151,7 +179,6 @@ async def start_cmd(client, message):
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
             except Exception as e:
                 print(f"[WARN] Failed to send log message for new user: {e}")
-
     except Exception as e:
         print(f"[ERROR] in start_cmd: {e}")
         
@@ -160,7 +187,6 @@ async def all_db_users_here(client, message):
     silicon = await message.reply_text("Please Wait....")
     silicon_botz = await total_user()
     await silicon.edit(f"Tᴏᴛᴀʟ Usᴇʀ :- `{silicon_botz}`")
-
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command(["broadcast"]))
 async def broadcast(client, message):
@@ -208,13 +234,19 @@ async def restart_bot(client, message):
     await silicon.edit("**✅️ 𝙱𝙾𝚃 𝙸𝚂 𝚁𝙴𝚂𝚃𝙰𝚁𝚃𝙴𝙳. 𝙽𝙾𝚆 𝚈𝙾𝚄 𝙲𝙰𝙽 𝚄𝚂𝙴 𝙼𝙴**")
     os.execl(sys.executable, sys.executable, *sys.argv)
 
-
 @Client.on_message(filters.command("settings") & filters.private)
-async def user_settings(client, message):
-    user_id = message.from_user.id
+async def settings_cmd(client, message):
+    await user_settings(
+        client,
+        user=message.from_user,
+        send_func=message.reply_text
+    )
+
+async def user_settings(client: Client,*,user,send_func,):
+    user_id = user.id
     channels = await get_user_channels(user_id)
     if not channels:
-        return await message.reply_text("You haven’t added me to any channels yet!")
+        return await send_func("You haven’t added me to any channels yet!")
     valid_channels = []
     removed_titles = []
     async def check_channel(ch):
@@ -226,38 +258,31 @@ async def user_settings(client, message):
                 try:
                     chat = await client.get_chat(ch_id)
                     ch_title = getattr(chat, "title", ch_title)
-                except Exception:
+                except:
                     pass
                 return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
             else:
                 await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
                 return {"valid": False, "title": ch_title}
-        except (ChatAdminRequired, errors.RPCError) as e:
-            print(f"[INFO] Removing inaccessible channel {ch_id}: {e}")
+        except (ChatAdminRequired, errors.RPCError):
             await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
             return {"valid": False, "title": ch_title}
-        except Exception as ex:
-            print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
+        except Exception:
             return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
-
     results = await asyncio.gather(*[check_channel(ch) for ch in channels])
-
     for res in results:
         if res["valid"]:
-            valid_channels.append({"channel_id": res["channel_id"], "channel_title": res["channel_title"]})
+            valid_channels.append(res)
         else:
             removed_titles.append(res["title"])
-
     if removed_titles:
         removed_text = "• " + "\n• ".join(removed_titles)
-        await message.reply_text(f"⚠️ Removed (no admin/access):\n{removed_text}")
-
+        await send_func(f"⚠️ Removed (no admin/access):\n{removed_text}")
     if not valid_channels:
-        return await message.reply_text("No active channels where I am admin.")
-
+        return await send_func("No active channels where I am admin.")
     buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
-    await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
+    await send_func("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex("^close_msg$"))
 async def close_message(client, query):
