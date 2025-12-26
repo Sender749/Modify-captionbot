@@ -1,5 +1,8 @@
+import sys
+import os
 from pyrogram import Client, errors
 from info import *
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from body.caption import caption_worker, WORKERS
 
 class Bot(Client):
