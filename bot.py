@@ -1,6 +1,5 @@
 from pyrogram import Client, errors
 from info import *
-from body.caption import caption_worker, WORKERS
 
 class Bot(Client):
     def __init__(self):
