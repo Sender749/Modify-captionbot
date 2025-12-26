@@ -73,7 +73,7 @@ async def ff_dst(c, q):
     )
 
 # ---------------- SKIP ----------------
-@Client.on_message(filters.private & filters.text)
+@Client.on_message(filters.private & filters.text & filters.regex(r"^\d+$"))
 async def ff_skip(c, m):
     uid = m.from_user.id
     s = FF_SESSIONS.get(uid)
