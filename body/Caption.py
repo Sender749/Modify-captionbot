@@ -5,13 +5,16 @@ import sys
 from typing import Tuple, List, Optional
 from pyrogram import Client, filters, errors, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberUpdated, CallbackQuery
-from pyrogram.errors import ChatAdminRequired, RPCError
+from pyrogram.errors import ChatAdminRequired, RPCError, FloodWait
 from pyrogram.enums import ParseMode
 from info import *
 from Script import script
 from body.database import *  
 from body.database import insert_user_check_new, get_channel_cached
 
+CAPTION_QUEUE = asyncio.Queue()
+EDIT_DELAY = 2.0  # seconds (SAFE)
+WORKERS = 1         
 CHANNEL_CACHE = {}
 bot_data = {
     "caption_set": {},
@@ -271,6 +274,16 @@ async def reset_db(client, message):
 
     await message.reply_text("✅ All database records have been deleted successfully!")
 
+@Client.on_message(filters.private & filters.user(ADMIN) & filters.command("queue"))
+async def queue_status(client, message):
+    qsize = CAPTION_QUEUE.qsize()
+    await message.reply_text(
+        f"📥 **Caption Queue Status**\n\n"
+        f"• Pending jobs: `{qsize}`\n"
+        f"• Workers: `{WORKERS}`\n"
+        f"• Edit delay: `{EDIT_DELAY}s`\n\n"
+        f"{'🟢 Normal load' if qsize < 20 else '🟡 High load' if qsize < 50 else '🔴 Heavy load'}"
+    )
 
 # ---------------- Auto Caption core ----------------
 def sanitize_caption_html(text: str) -> str:
@@ -281,6 +294,38 @@ def sanitize_caption_html(text: str) -> str:
         tag = match.group(1).casefold()
         return match.group(0) if tag in allowed_tags else ""
     return re.sub(r"</?\s*([a-zA-Z0-9]+)(?:\s[^>]*)?>", repl, text)
+
+async def caption_worker(client: Client):
+    print("[QUEUE] Caption worker started")
+    while True:
+        msg, caption = await CAPTION_QUEUE.get()
+        try:
+            await msg.edit_caption(
+                caption,
+                parse_mode=ParseMode.HTML
+            )
+            await asyncio.sleep(EDIT_DELAY)
+        except FloodWait as e:
+            wait_time = e.value + 1
+            print(f"[QUEUE] FloodWait {wait_time}s")
+            await asyncio.sleep(wait_time)
+            try:
+                await msg.edit_caption(caption, parse_mode=ParseMode.HTML)
+                await asyncio.sleep(EDIT_DELAY)
+            except Exception as err:
+                print(f"[QUEUE] Retry failed: {err}")
+        except errors.BadRequest:
+            try:
+                await msg.edit_caption(strip_links_and_mentions_keep_text(caption))
+                await asyncio.sleep(EDIT_DELAY)
+            except Exception:
+                pass
+        except errors.MessageNotModified:
+            pass
+        except Exception as e:
+            print(f"[QUEUE ERROR] {e}")
+        finally:
+            CAPTION_QUEUE.task_done()
 
 @Client.on_message(filters.channel & filters.media)
 async def reCap(client, msg):
@@ -352,20 +397,12 @@ async def reCap(client, msg):
     new_caption = new_caption.strip()
     if "<" in new_caption and ">" in new_caption:
         new_caption = sanitize_caption_html(new_caption)
-    # Try editing caption (with FloodWait + fallback)
-    for _ in range(2):
-        try:
-            await msg.edit_caption(new_caption, parse_mode=ParseMode.HTML)
-            break
-        except errors.BadRequest:
-            await msg.edit_caption(strip_links_and_mentions_keep_text(new_caption))
-            break
-        except errors.FloodWait as e:
-            await asyncio.sleep(e.value)
-        except errors.MessageNotModified:
-            break
-        except Exception:
-            break
+    # Push caption edit job to queue
+    await CAPTION_QUEUE.put((msg, new_caption))
+    # Optional debug
+    qsize = CAPTION_QUEUE.qsize()
+    if qsize % 10 == 0:
+        print(f"[QUEUE] Pending jobs: {qsize}")
 
 # ---------------- Helper functions ----------------
 def _status_name(member_obj):
