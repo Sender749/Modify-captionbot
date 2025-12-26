@@ -323,19 +323,20 @@ def sanitize_caption_html(text: str) -> str:
 async def caption_worker(client: Client):
     print("[QUEUE] Fair caption worker started")
     while True:
+        msg = caption = None
         async with QUEUE_LOCK:
-            if not CHANNEL_ORDER:
-                await asyncio.sleep(0.3)
-                continue
-            channel_id = CHANNEL_ORDER.popleft()
-            queue = CHANNEL_QUEUES.get(channel_id)
-            if not queue:
-                continue
-            msg, caption = queue.popleft()
-            if queue:
-                CHANNEL_ORDER.append(channel_id)
-            else:
-                CHANNEL_QUEUES.pop(channel_id, None)-
+            if CHANNEL_ORDER:
+                channel_id = CHANNEL_ORDER.popleft()
+                queue = CHANNEL_QUEUES.get(channel_id)
+                if queue:
+                    msg, caption = queue.popleft()
+                    if queue:
+                        CHANNEL_ORDER.append(channel_id)
+                    else:
+                        CHANNEL_QUEUES.pop(channel_id, None)
+        if not msg:
+            await asyncio.sleep(0.3)
+            continue
         try:
             await msg.edit_caption(caption, parse_mode=ParseMode.HTML)
             await asyncio.sleep(EDIT_DELAY)
@@ -435,10 +436,12 @@ async def reCap(client, msg):
         if chnl_id not in CHANNEL_QUEUES:
             CHANNEL_ORDER.append(chnl_id)
         CHANNEL_QUEUES[chnl_id].append((msg, new_caption))
-    # Optional debug
-    qsize = CAPTION_QUEUE.qsize()
-    if qsize % 10 == 0:
-        print(f"[QUEUE] Pending jobs: {qsize}")
+    # Optional debug (fair queue)
+    async with QUEUE_LOCK:
+        total_jobs = sum(len(q) for q in CHANNEL_QUEUES.values())
+    if total_jobs % 10 == 0 and total_jobs > 0:
+        print(f"[QUEUE] Pending jobs: {total_jobs}")
+
 
 # ---------------- Helper functions ----------------
 def _status_name(member_obj):
