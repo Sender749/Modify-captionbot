@@ -427,6 +427,8 @@ async def reCap(client, msg):
         new_caption = f"{prefix}\n{new_caption}".strip()
     if suffix:
         new_caption = f"{new_caption}\n{suffix}".strip()
+    if language and contains_language(raw_file_name, language):
+        language = ""
     # Clean caption
     new_caption = new_caption.strip()
     if "<" in new_caption and ">" in new_caption:
@@ -475,19 +477,29 @@ def get_size(size: int) -> str:
         i += 1
     return "%.2f %s" % (size, units[i])
 
+def contains_language(base_name: str, lang: str) -> bool:
+    if not base_name or not lang:
+        return False
+    base = normalize(base_name)
+    for l in lang.split():
+        if normalize(l) in base:
+            return True
+    return False
+
 def extract_language(default_caption: str) -> str:
-    languages = [
-        "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", 
-        "Marathi", "Gujarati", "Bengali", "Punjabi", "Odia", "Assamese", 
-        "Urdu", "Sanskrit", "Nepali", "Konkani", "Maithili", "Dogri",
-        "French", "German", "Spanish", "Italian", "Portuguese", "Russian", 
-        "Chinese", "Japanese", "Korean", "Arabic", "Persian", "Turkish", 
-        "Swahili", "Dutch", "Greek", "Hebrew", "Thai", "Vietnamese"
-    ]
     if not default_caption:
         return ""
-    found_langs = {lang for lang in languages if re.search(rf'\b{re.escape(lang)}\b', default_caption, re.IGNORECASE)}
-    return " ".join(sorted(found_langs, key=str.lower))
+    languages = [
+        "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada",
+        "Marathi", "Gujarati", "Bengali", "Punjabi", "Urdu",
+        "French", "German", "Spanish", "Italian", "Russian",
+        "Japanese", "Korean", "Chinese"
+    ]
+    found = []
+    for lang in languages:
+        if re.search(rf'\b{lang}\b', default_caption, re.IGNORECASE):
+            found.append(lang)
+    return " ".join(dict.fromkeys(found))
 
 def normalize_for_matching(text: str) -> str:
     if not text:
@@ -536,7 +548,7 @@ def build_smart_filename(
     if quality and not has(quality):
         parts.append(quality)
     audio_langs = extract_audio_languages(default_caption)
-    if audio_langs and not has(audio_langs):
+    if audio_langs and not contains_language(base_name, audio_langs):
         parts.append(audio_langs)
     sub_tag = extract_subtitle_tag(default_caption)
     if sub_tag and not has(sub_tag):
@@ -579,10 +591,10 @@ def extract_season_episode(text: str) -> Optional[str]:
 def normalize_series_name(name: str) -> str:
     if not name:
         return ""
-    name = re.sub(r'\.(mkv|mp4|avi)$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\.(mkv|mp4|avi|webm)$', '', name, flags=re.IGNORECASE)
     name = re.sub(r'[._\-]+', ' ', name)
-    name = re.sub(r'\s+', ' ', name).strip()
-    return name.title()
+    name = re.sub(r'\s+', ' ', name)
+    return name.strip().title()
 
 def extract_audio_tags(text: str) -> Optional[str]:
     tags = [
@@ -617,29 +629,20 @@ def extract_subtitle_tag(text: str) -> Optional[str]:
 def extract_audio_languages(text: str) -> str:
     if not text:
         return ""
-    audio_patterns = [
-        r'audio\s*[:\-]\s*([a-z ,/]+)',
-        r'dual\s*audio',
-        r'multi\s*audio'
-    ]
     languages = [
         "Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada",
         "Marathi", "Gujarati", "Bengali", "Punjabi", "Urdu",
         "French", "German", "Spanish", "Italian", "Russian",
         "Japanese", "Korean", "Chinese"
     ]
-    found = set()
-    for pat in audio_patterns:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            for lang in languages:
-                if re.search(rf'\b{lang}\b', m.group(0), re.IGNORECASE):
-                    found.add(lang)
-    for lang in languages:
-        if re.search(rf'\b{lang}\b', text, re.IGNORECASE):
-            if not re.search(rf'(sub|subtitle).*{lang}', text, re.IGNORECASE):
-                found.add(lang)
-    return " ".join(sorted(found, key=str.lower))
+    found = []
+    audio_block = re.search(r'(audio|dual audio|multi audio)[^a-z]*([a-z ,/]+)', text, re.IGNORECASE)
+    if audio_block:
+        block = audio_block.group(2)
+        for lang in languages:
+            if re.search(rf'\b{lang}\b', block, re.IGNORECASE):
+                found.append(lang)
+    return " ".join(dict.fromkeys(found))
 
 def extract_subtitle_languages(text: str) -> str:
     if not text:
