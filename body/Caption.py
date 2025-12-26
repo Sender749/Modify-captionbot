@@ -11,9 +11,13 @@ from info import *
 from Script import script
 from body.database import *  
 from body.database import insert_user_check_new, get_channel_cached
+from collections import deque, defaultdict
 
-CAPTION_QUEUE = asyncio.Queue()
-EDIT_DELAY = 2.0  # seconds (SAFE)
+CHANNEL_QUEUES = defaultdict(deque)   # channel_id -> deque[jobs]
+CHANNEL_ORDER = deque()               # round-robin order
+QUEUE_LOCK = asyncio.Lock()
+
+EDIT_DELAY = 2.0  # seconds (not exceed 1.5)
 WORKERS = 1         
 CHANNEL_CACHE = {}
 bot_data = {
@@ -276,14 +280,35 @@ async def reset_db(client, message):
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("queue"))
 async def queue_status(client, message):
-    qsize = CAPTION_QUEUE.qsize()
-    await message.reply_text(
+    async with QUEUE_LOCK:
+        total_jobs = sum(len(q) for q in CHANNEL_QUEUES.values())
+        active_channels = len(CHANNEL_QUEUES)
+        top_channels = sorted(
+            CHANNEL_QUEUES.items(),
+            key=lambda x: len(x[1]),
+            reverse=True
+        )[:5]
+    text = (
         f"📥 **Caption Queue Status**\n\n"
-        f"• Pending jobs: `{qsize}`\n"
+        f"• Pending jobs: `{total_jobs}`\n"
+        f"• Active channels: `{active_channels}`\n"
         f"• Workers: `{WORKERS}`\n"
-        f"• Edit delay: `{EDIT_DELAY}s`\n\n"
-        f"{'🟢 Normal load' if qsize < 20 else '🟡 High load' if qsize < 50 else '🔴 Heavy load'}"
+        f"• Edit delay: `{EDIT_DELAY}s`\n"
+        f"• Mode: `Per-Channel Fair (Round-Robin)`\n\n"
     )
+    if top_channels:
+        text += "🔥 **Top Busy Channels:**\n"
+        for ch_id, q in top_channels:
+            text += f"• `{ch_id}` → `{len(q)}` jobs\n"
+    load = (
+        "🟢 Normal"
+        if total_jobs < 20 else
+        "🟡 High"
+        if total_jobs < 50 else
+        "🔴 Heavy"
+    )
+    text += f"\n📊 **Load:** {load}"
+    await message.reply_text(text)
 
 # ---------------- Auto Caption core ----------------
 def sanitize_caption_html(text: str) -> str:
@@ -296,27 +321,37 @@ def sanitize_caption_html(text: str) -> str:
     return re.sub(r"</?\s*([a-zA-Z0-9]+)(?:\s[^>]*)?>", repl, text)
 
 async def caption_worker(client: Client):
-    print("[QUEUE] Caption worker started")
+    print("[QUEUE] Fair caption worker started")
     while True:
-        msg, caption = await CAPTION_QUEUE.get()
+        async with QUEUE_LOCK:
+            if not CHANNEL_ORDER:
+                await asyncio.sleep(0.3)
+                continue
+            channel_id = CHANNEL_ORDER.popleft()
+            queue = CHANNEL_QUEUES.get(channel_id)
+            if not queue:
+                continue
+            msg, caption = queue.popleft()
+            if queue:
+                CHANNEL_ORDER.append(channel_id)
+            else:
+                CHANNEL_QUEUES.pop(channel_id, None)-
         try:
-            await msg.edit_caption(
-                caption,
-                parse_mode=ParseMode.HTML
-            )
+            await msg.edit_caption(caption, parse_mode=ParseMode.HTML)
             await asyncio.sleep(EDIT_DELAY)
         except FloodWait as e:
-            wait_time = e.value + 1
-            print(f"[QUEUE] FloodWait {wait_time}s")
-            await asyncio.sleep(wait_time)
+            await asyncio.sleep(e.value + 1)
             try:
                 await msg.edit_caption(caption, parse_mode=ParseMode.HTML)
                 await asyncio.sleep(EDIT_DELAY)
-            except Exception as err:
-                print(f"[QUEUE] Retry failed: {err}")
+            except Exception:
+                pass
         except errors.BadRequest:
             try:
-                await msg.edit_caption(strip_links_and_mentions_keep_text(caption))
+                await msg.edit_caption(
+                    strip_links_and_mentions_keep_text(caption),
+                    parse_mode=ParseMode.HTML
+                )
                 await asyncio.sleep(EDIT_DELAY)
             except Exception:
                 pass
@@ -324,8 +359,6 @@ async def caption_worker(client: Client):
             pass
         except Exception as e:
             print(f"[QUEUE ERROR] {e}")
-        finally:
-            CAPTION_QUEUE.task_done()
 
 @Client.on_message(filters.channel & filters.media)
 async def reCap(client, msg):
@@ -398,7 +431,10 @@ async def reCap(client, msg):
     if "<" in new_caption and ">" in new_caption:
         new_caption = sanitize_caption_html(new_caption)
     # Push caption edit job to queue
-    await CAPTION_QUEUE.put((msg, new_caption))
+    async with QUEUE_LOCK:
+        if chnl_id not in CHANNEL_QUEUES:
+            CHANNEL_ORDER.append(chnl_id)
+        CHANNEL_QUEUES[chnl_id].append((msg, new_caption))
     # Optional debug
     qsize = CAPTION_QUEUE.qsize()
     if qsize % 10 == 0:
