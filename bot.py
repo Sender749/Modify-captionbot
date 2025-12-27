@@ -28,19 +28,19 @@ class Bot(Client):
             print(f"🚨 Startup FloodWait: sleeping {e.value}s")
             await asyncio.sleep(e.value)
             await super().start()
-        # 🔁 Auto-run plugin startup hooks
         await self._run_plugin_startup_hooks()
-
+        await ensure_queue_indexes()
+        await recover_stuck_jobs()
+        for _ in range(WORKERS):
+            asyncio.create_task(caption_worker(self))
         me = await self.get_me()
         self.force_channel = FORCE_SUB
-
         if FORCE_SUB:
             try:
                 self.invitelink = await self.export_chat_invite_link(FORCE_SUB)
             except Exception:
                 print("⚠️ Bot must be admin in force-sub channel")
                 self.force_channel = None
-
         try:
             await self.get_chat(int(LOG_CH))
             await self.get_chat(int(DUMP_CH))
