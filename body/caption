@@ -89,18 +89,16 @@ async def auto_delete_message(msg, delay: int):
 
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
 async def settings_button_handler(client: Client, query: CallbackQuery):
-    class DummyMessage:
-        def __init__(self, chat, from_user):
-            self.chat = chat
-            self.from_user = from_user
-        @property
-        def id(self):
-            return None
-        async def reply_text(self, *args, **kwargs):
-            return await query.message.reply_text(*args, **kwargs)
-    dummy_msg = DummyMessage(chat=query.message.chat, from_user=query.from_user)
-    await user_settings(client, dummy_msg)
     await query.answer()
+
+    async def edit_sender(text, **kwargs):
+        await query.message.edit_text(text, **kwargs)
+
+    await user_settings(
+        client,
+        user=query.from_user,
+        send_func=edit_sender
+    )
 
 @Client.on_callback_query(filters.regex("^help$"))
 async def help_callback(client, query: CallbackQuery):
@@ -236,13 +234,19 @@ async def restart_bot(client, message):
     await silicon.edit("**✅️ 𝙱𝙾𝚃 𝙸𝚂 𝚁𝙴𝚂𝚃𝙰𝚁𝚃𝙴𝙳. 𝙽𝙾𝚆 𝚈𝙾𝚄 𝙲𝙰𝙽 𝚄𝚂𝙴 𝙼𝙴**")
     os.execl(sys.executable, sys.executable, *sys.argv)
 
-
 @Client.on_message(filters.command("settings") & filters.private)
-async def user_settings(client, message):
-    user_id = message.from_user.id
+async def settings_cmd(client, message):
+    await user_settings(
+        client,
+        user=message.from_user,
+        send_func=message.reply_text
+    )
+
+async def user_settings(client: Client,*,user,send_func,):
+    user_id = user.id
     channels = await get_user_channels(user_id)
     if not channels:
-        return await message.reply_text("You haven’t added me to any channels yet!")
+        return await send_func("You haven’t added me to any channels yet!")
     valid_channels = []
     removed_titles = []
     async def check_channel(ch):
@@ -254,33 +258,31 @@ async def user_settings(client, message):
                 try:
                     chat = await client.get_chat(ch_id)
                     ch_title = getattr(chat, "title", ch_title)
-                except Exception:
+                except:
                     pass
                 return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
             else:
                 await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
                 return {"valid": False, "title": ch_title}
-        except (ChatAdminRequired, errors.RPCError) as e:
-            print(f"[INFO] Removing inaccessible channel {ch_id}: {e}")
+        except (ChatAdminRequired, errors.RPCError):
             await users.update_one({"_id": user_id}, {"$pull": {"channels": {"channel_id": ch_id}}})
             return {"valid": False, "title": ch_title}
-        except Exception as ex:
-            print(f"[WARN] Unexpected error checking channel {ch_id}: {ex}")
+        except Exception:
             return {"valid": True, "channel_id": ch_id, "channel_title": ch_title}
     results = await asyncio.gather(*[check_channel(ch) for ch in channels])
     for res in results:
         if res["valid"]:
-            valid_channels.append({"channel_id": res["channel_id"], "channel_title": res["channel_title"]})
+            valid_channels.append(res)
         else:
             removed_titles.append(res["title"])
     if removed_titles:
         removed_text = "• " + "\n• ".join(removed_titles)
-        await message.reply_text(f"⚠️ Removed (no admin/access):\n{removed_text}")
+        await send_func(f"⚠️ Removed (no admin/access):\n{removed_text}")
     if not valid_channels:
-        return await message.reply_text("No active channels where I am admin.")
+        return await send_func("No active channels where I am admin.")
     buttons = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"chinfo_{ch['channel_id']}")] for ch in valid_channels]
     buttons.append([InlineKeyboardButton("❌ Close", callback_data="close_msg")])
-    await message.reply_text("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
+    await send_func("📋 Your added channels:", reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex("^close_msg$"))
 async def close_message(client, query):
@@ -893,4 +895,3 @@ async def capture_user_input(client, message):
             )
         )
         return
-
