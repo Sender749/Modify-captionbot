@@ -10,6 +10,47 @@ db = client.captions_with_chnl
 chnl_ids = db.chnl_ids
 users = db.users
 user_channels = db.user_channels 
+queue_col = db.caption_queue
+
+# ---------------- Queue System ----------------
+async def ensure_queue_indexes():
+    await queue_col.create_index([("status", 1), ("ts", 1)])
+    await queue_col.create_index([("chat_id", 1)])
+
+async def enqueue_caption(job: dict):
+    await queue_col.insert_one({
+        **job,
+        "status": "pending",
+        "retries": 0,
+        "ts": time.time()
+    })
+    
+async def fetch_next_job():
+    return await queue_col.find_one_and_update(
+        {"status": "pending"},
+        {"$set": {"status": "processing", "started": time.time()}},
+        sort=[("ts", 1)],
+        return_document=True
+    )
+
+async def mark_done(job_id):
+    await queue_col.delete_one({"_id": job_id})
+    
+async def reschedule(job_id, delay=5):
+    await queue_col.update_one(
+        {"_id": job_id},
+        {"$set": {"status": "pending", "ts": time.time() + delay},
+         "$inc": {"retries": 1}}
+    )
+
+async def recover_stuck_jobs(timeout=300):
+    await queue_col.update_many(
+        {
+            "status": "processing",
+            "started": {"$lt": time.time() - timeout}
+        },
+        {"$set": {"status": "pending"}}
+    )
 
 # ---------------- User functions ----------------
 async def insert_user(user_id: int):
