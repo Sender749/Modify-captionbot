@@ -10,7 +10,7 @@ from pyrogram.enums import ParseMode
 from info import *
 from Script import script
 from body.database import *  
-from body.database import insert_user_check_new, get_channel_cached
+from body.file_forward import *  
 from collections import deque, defaultdict
 
 EDIT_DELAY = 2.0  # seconds (not exceed 1.5)
@@ -133,7 +133,7 @@ async def show_start_ui(
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
-            [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
+            [InlineKeyboardButton("📂Help", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
             [InlineKeyboardButton("ℹ️ About", callback_data="about_cb")],
         ]
     )
