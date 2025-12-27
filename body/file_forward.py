@@ -21,19 +21,7 @@ def fmt(sec):
     return f"{h}h {m}m"
 
 # ---------------- START ----------------
-@Client.on_message(filters.private & filters.command("file_forward"))
-async def ff_start(c, m):
-    uid = m.from_user.id
-    ch = await get_user_channels(uid)
-    if not ch:
-        return await m.reply_text("❌ No admin channels found.")
 
-    FF_SESSIONS[uid] = {"step": "src", "channels": ch}
-
-    kb = [[InlineKeyboardButton(x["channel_title"], callback_data=f"ff_src_{x['channel_id']}")] for x in ch]
-    kb.append([InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")])
-
-    await m.reply_text("📤 Select **SOURCE** channel", reply_markup=InlineKeyboardMarkup(kb))
 
 # ---------------- SOURCE ----------------
 @Client.on_callback_query(filters.regex(r"^ff_src_(-?\d+)$"))
