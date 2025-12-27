@@ -198,18 +198,18 @@ async def start_cmd(client, message):
         print(f"[ERROR] in start_cmd: {e}")
 
 @Client.on_message(filters.private & filters.command("file_forward"))
-async def ff_start(c, m):
-    uid = m.from_user.id
-    ch = await get_user_channels(uid)
-    if not ch:
-        return await m.reply_text("❌ No admin channels found.")
-
-    FF_SESSIONS[uid] = {"step": "src", "channels": ch}
-
-    kb = [[InlineKeyboardButton(x["channel_title"], callback_data=f"ff_src_{x['channel_id']}")] for x in ch]
+async def ff_start(client, message):
+    uid = message.from_user.id
+    channels = await get_user_channels(uid)
+    if not channels:
+        return await message.reply_text("❌ No admin channels found.")
+    FF_SESSIONS[uid] = {"step": "src", "channels": channels}
+    kb = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"ff_src_{ch['channel_id']}")] for ch in channels]
     kb.append([InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")])
-
-    await m.reply_text("📤 Select **SOURCE** channel", reply_markup=InlineKeyboardMarkup(kb))
+    await message.reply_text(
+        "📤 **Select SOURCE channel**",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
         
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("admin"))
 async def admin_help(client, message):
@@ -821,6 +821,8 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 # ---------------- Function Handler ----------------
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
+    if message.from_user.id in FF_SESSIONS:
+        return
     user_id = message.from_user.id
     active_users = (
         set(bot_data.get("caption_set", {})) |
