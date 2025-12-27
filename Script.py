@@ -129,6 +129,7 @@ Your channel captions will now be fully automatic ✨
 • /restart – Restart bot safely
 • Reply + /broadcast – Send message to all users
 • /reset – ⚠️ Reset all DB data (users, channels, settings)
+• /stats – Shows bot statistics:Total users, Pending caption jobs, Processing jobs, Worker count, Edit delay, Queue mode
 
 <b>System Info</b>
 • Workers: {workers}
