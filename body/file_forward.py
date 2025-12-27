@@ -71,11 +71,13 @@ async def ff_dst(client, query):
     s["step"] = "skip"
     s["chat_id"] = query.message.chat.id
     s["msg_id"] = query.message.id
-
+    s["expires"] = time.time() + 900  # in seconds
     await query.message.edit_text(
-        "⏭ **Send MESSAGE ID to skip up to**\n\n"
-        "• Example: `2458` → start AFTER message 2458\n"
-        "• Deleted messages are handled automatically"
+        "⏭ **Send MESSAGE LINK to skip up to**\n\n"
+        "Example:\n"
+        "`https://t.me/c/1815162626/2458`\n\n"
+        "• Bot will start AFTER that message\n"
+        "• Expires in 15 minutes"
     )
 
 
@@ -119,7 +121,8 @@ async def enqueue_forward_jobs(client, uid):
 
     async with FORWARD_LOCK:
         FORWARD_QUEUE[src].extend(jobs)
-        FORWARD_ORDER.append(src)
+        if src not in FORWARD_ORDER:
+            FORWARD_ORDER.append(src)
         for j in FORWARD_QUEUE[src]:
             j["total"] = total
 
