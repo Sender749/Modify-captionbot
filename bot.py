@@ -3,6 +3,7 @@ import asyncio
 import importlib
 import pkgutil
 from pyrogram import Client, errors
+from pyrogram.errors import FloodWait
 from info import *
 
 PLUGIN_ROOT = "body"
@@ -21,8 +22,12 @@ class Bot(Client):
         )
 
     async def start(self):
-        await super().start()
-
+        try:
+            await super().start()
+        except FloodWait as e:
+            print(f"🚨 Startup FloodWait: sleeping {e.value}s")
+            await asyncio.sleep(e.value)
+            await super().start()
         # 🔁 Auto-run plugin startup hooks
         await self._run_plugin_startup_hooks()
 
