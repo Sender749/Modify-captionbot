@@ -50,17 +50,46 @@ Example: `old new, hello hi`
 Your channel captions will now be fully automatic ✨
 """
 
-    ABOUT_TXT = """<b>╔════❰ ᴀᴜᴛᴏ ᴄᴀᴘᴛɪᴏɴ ʙᴏᴛ ❱═❍⊱❁
-║╭━━━━━━━━━━━━━━━➣
-║┣⪼📃ʙᴏᴛ : <a href='https://t.me/CustomCaptionBot'>Auto Caption</a>
-║┣⪼👦Cʀᴇᴀᴛᴏʀ : <a href='https://t.me/Silicon_Official'>Sɪʟɪᴄᴏɴ Dᴇᴠᴇʟᴏᴘᴇʀ ⚠️</a>
-║┣⪼🤖Uᴘᴅᴀᴛᴇ : <a href='https://t.me/Silicon_Bot_Update'>Sɪʟɪᴄᴏɴ Bᴏᴛᴢ™</a>
-║┣⪼📡Hᴏsᴛᴇᴅ ᴏɴ : ʜᴇʀᴏᴋᴜ 
-║┣⪼🗣️Lᴀɴɢᴜᴀɢᴇ : Pʏᴛʜᴏɴ3
-║┣⪼📚Lɪʙʀᴀʀʏ : Pʏʀᴏɢʀᴀᴍ 2.11.6
-║┣⪼🗒️Vᴇʀsɪᴏɴ : 2.0.8 [ᴍᴏsᴛ sᴛᴀʙʟᴇ]
-║╰━━━━━━━━━━━━━━━➣
-╚══════════════════❍⊱❁</b>"""
+    ABOUT_TXT = """<b>╔════❰ 🤖 ᴀᴜᴛᴏ ᴄᴀᴘᴛɪᴏɴ ʙᴏᴛ ❱═❍⊱❁
+║╭━━━━━━━━━━━━━━━━━━━━➣
+║┣⪼ 📃 <b>Bot Name :</b> <a href='https://t.me/{bot_username}'>{bot_name}</a>
+║┣⪼ 👦 <b>Movie Group :</b> <a href='https://t.me/Navex_Movies'>Mᴏᴠɪᴇ Zᴏɴᴇ🍿</a>
+║┣⪼ 🤖 <b>Main Channel :</b> <a href='https://t.me/+j47Zv1sA9WViODk1'>Nᴀᴠᴇx™</a>
+║╰━━━━━━━━━━━━━━━━━━━━➣
+╚══════════════════════❍⊱❁</b>
+
+<b>✨ Key Features</b>
+• 🚀 Handles <b>large number of files</b> smoothly  
+• 📂 Supports <b>multiple users & multiple channels</b>  
+• 📝 Automatically <b>edits captions</b> of media files  
+• 🔁 Can <b>forward files</b> from one channel to another  
+• 🧠 Smart caption system with placeholders  
+• 🧹 Remove links, words & unwanted text  
+• 🔤 Prefix, suffix & replace words support  
+• 🌐 Language, year, quality & metadata detection  
+
+<b>⚙️ Advanced System</b>
+• 📥 Persistent queue (no file loss)
+• 🔄 Auto recovery after restart
+• ⏳ FloodWait handled automatically
+• 🧮 Fair processing for all channels
+• ♾️ Unlimited file backlog supported
+
+<b>⏳ Important Notice</b>
+• If you send <b>many files</b>, editing may take time  
+• Please be <b>patient</b> — every file will be processed  
+• Speed depends on Telegram limits (not bot issue)  
+• Do NOT resend the same files again
+
+<b>📌 Things You Should Know</b>
+• Bot must be <b>admin</b> in your channel
+• Caption editing is <b>safe & reliable</b>
+• Files are never skipped or dropped
+• Works 24×7 without stopping
+
+<b>❤️ Thank You for Using Auto Caption Bot</b>
+<b>⚡ Fast • Stable • Powerful</b>
+"""
 
     FONT_TXT = """🔰 About Caption Font
 
@@ -91,4 +120,20 @@ Your channel captions will now be fully automatic ✨
 
 ➢ Hyperlink Text
 ☞ <code>&lt;a href="https://t.me/Navex_Movies"&gt;{file_name}&lt;/a&gt;</code>
+"""
+
+    ADMIN_HELP_TEXT = """👑 <b>ADMIN CONTROL PANEL</b>
+
+<b>Bot Status</b>
+• /queue – View queue stats, ETA, busy channels
+• /restart – Restart bot safely
+• Reply + /broadcast – Send message to all users
+• /reset – ⚠️ Reset all DB data (users, channels, settings)
+
+<b>System Info</b>
+• Workers: {workers}
+• Edit Delay: {delay}s
+• Queue Mode: Persistent (MongoDB)
+• FloodWait Handling: Enabled
+• Crash Recovery: Enabled
 """
