@@ -13,12 +13,8 @@ from body.database import *
 from body.database import insert_user_check_new, get_channel_cached
 from collections import deque, defaultdict
 
-CHANNEL_QUEUES = defaultdict(deque)   # channel_id -> deque[jobs]
-CHANNEL_ORDER = deque()               # round-robin order
-QUEUE_LOCK = asyncio.Lock()
-
 EDIT_DELAY = 2.0  # seconds (not exceed 1.5)
-WORKERS = 1         
+WORKERS = 3       # make 2 if crash and edit delay 2.2
 CHANNEL_CACHE = {}
 bot_data = {
     "caption_set": {},
@@ -138,7 +134,7 @@ async def show_start_ui(
         [
             [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
             [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
-            [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69")],
+            [InlineKeyboardButton("ℹ️ About", callback_data="about_cb")],
         ]
     )
     if edit_message:
@@ -154,6 +150,23 @@ async def show_start_ui(
             caption=script.START_TXT.format(mention=mention),
             reply_markup=keyboard
         )
+
+@Client.on_callback_query(filters.regex("^about_cb$"))
+async def about_callback(client: Client, query: CallbackQuery):
+    await query.answer()
+    bot = await client.get_me()
+    text = script.ABOUT_TXT.format(
+        bot_name=bot.first_name,
+        bot_username=bot.username
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69"),InlineKeyboardButton("⬅️ Back", callback_data="start")]
+    ])
+    await query.message.edit_text(
+        text=text,
+        reply_markup=keyboard,
+        disable_web_page_preview=True
+    )
 
 # ---------------- Commands ----------------
 @Client.on_message(filters.command("start") & filters.private)
@@ -182,11 +195,33 @@ async def start_cmd(client, message):
     except Exception as e:
         print(f"[ERROR] in start_cmd: {e}")
         
-@Client.on_message(filters.private & filters.user(ADMIN) & filters.command(["total_users"]))
-async def all_db_users_here(client, message):
-    silicon = await message.reply_text("Please Wait....")
-    silicon_botz = await total_user()
-    await silicon.edit(f"Tᴏᴛᴀʟ Usᴇʀ :- `{silicon_botz}`")
+@Client.on_message(filters.private & filters.user(ADMIN) & filters.command("admin"))
+async def admin_help(client, message):
+    text = script.ADMIN_HELP_TEXT.format(
+        workers=WORKERS,
+        delay=EDIT_DELAY
+    )
+    await message.reply_text(
+        text,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
+
+@Client.on_message(filters.private & filters.user(ADMIN) & filters.command("stats"))
+async def bot_stats(client, message):
+    pending = await queue_col.count_documents({"status": "pending"})
+    processing = await queue_col.count_documents({"status": "processing"})
+    users_count = await total_user()
+    text = (
+        "📊 <b>BOT STATS</b>\n\n"
+        f"• Users: <code>{users_count}</code>\n"
+        f"• Pending Jobs: <code>{pending}</code>\n"
+        f"• Processing Jobs: <code>{processing}</code>\n"
+        f"• Workers: <code>{WORKERS}</code>\n"
+        f"• Edit Delay: <code>{EDIT_DELAY}s</code>\n"
+        f"• Mode: Persistent Queue\n"
+    )
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command(["broadcast"]))
 async def broadcast(client, message):
@@ -305,35 +340,44 @@ async def reset_db(client, message):
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("queue"))
 async def queue_status(client, message):
-    async with QUEUE_LOCK:
-        total_jobs = sum(len(q) for q in CHANNEL_QUEUES.values())
-        active_channels = len(CHANNEL_QUEUES)
-        top_channels = sorted(
-            CHANNEL_QUEUES.items(),
-            key=lambda x: len(x[1]),
-            reverse=True
-        )[:5]
+    total = await queue_col.count_documents({"status": "pending"})
+    processing = await queue_col.count_documents({"status": "processing"})
+    pipeline = [
+        {"$match": {"status": "pending"}},
+        {"$group": {"_id": "$chat_id", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]
+    per_channel = []
+    async for row in queue_col.aggregate(pipeline):
+        ch_id = row["_id"]
+        count = row["count"]
+        try:
+            chat = await client.get_chat(ch_id)
+            name = chat.title
+        except:
+            name = "Unknown"
+        eta_sec = int(count * EDIT_DELAY / WORKERS)
+        per_channel.append(
+            f"• <b>{name}</b>\n"
+            f"  ├ ID: <code>{ch_id}</code>\n"
+            f"  ├ Jobs: <code>{count}</code>\n"
+            f"  └ ETA: ~{eta_sec//60}m {eta_sec%60}s"
+        )
+    eta_total = int(total * EDIT_DELAY / WORKERS)
     text = (
-        f"📥 **Caption Queue Status**\n\n"
-        f"• Pending jobs: `{total_jobs}`\n"
-        f"• Active channels: `{active_channels}`\n"
-        f"• Workers: `{WORKERS}`\n"
-        f"• Edit delay: `{EDIT_DELAY}s`\n"
-        f"• Mode: `Per-Channel Fair (Round-Robin)`\n\n"
+        "📥 <b>Caption Queue Status</b>\n\n"
+        f"• Pending: <code>{total}</code>\n"
+        f"• Processing: <code>{processing}</code>\n"
+        f"• Workers: <code>{WORKERS}</code>\n"
+        f"• Edit delay: <code>{EDIT_DELAY}s</code>\n"
+        f"• Global ETA: ~{eta_total//60}m {eta_total%60}s\n\n"
     )
-    if top_channels:
-        text += "🔥 **Top Busy Channels:**\n"
-        for ch_id, q in top_channels:
-            text += f"• `{ch_id}` → `{len(q)}` jobs\n"
-    load = (
-        "🟢 Normal"
-        if total_jobs < 20 else
-        "🟡 High"
-        if total_jobs < 50 else
-        "🔴 Heavy"
-    )
-    text += f"\n📊 **Load:** {load}"
-    await message.reply_text(text)
+    if per_channel:
+        text += "🔥 <b>Top Busy Channels</b>\n" + "\n".join(per_channel)
+    else:
+        text += "✅ Queue empty."
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
 
 # ---------------- Auto Caption core ----------------
 def sanitize_caption_html(text: str) -> str:
@@ -346,45 +390,32 @@ def sanitize_caption_html(text: str) -> str:
     return re.sub(r"</?\s*([a-zA-Z0-9]+)(?:\s[^>]*)?>", repl, text)
 
 async def caption_worker(client: Client):
-    print("[QUEUE] Fair caption worker started")
+    print("[QUEUE] Persistent worker started")
     while True:
-        msg = caption = None
-        async with QUEUE_LOCK:
-            if CHANNEL_ORDER:
-                channel_id = CHANNEL_ORDER.popleft()
-                queue = CHANNEL_QUEUES.get(channel_id)
-                if queue:
-                    msg, caption = queue.popleft()
-                    if queue:
-                        CHANNEL_ORDER.append(channel_id)
-                    else:
-                        CHANNEL_QUEUES.pop(channel_id, None)
-        if not msg:
-            await asyncio.sleep(0.3)
+        job = await fetch_next_job()
+        if not job:
+            await asyncio.sleep(1)
             continue
         try:
-            await msg.edit_caption(caption, parse_mode=ParseMode.HTML)
+            await client.edit_message_caption(
+                chat_id=job["chat_id"],
+                message_id=job["message_id"],
+                caption=job["caption"],
+                parse_mode=ParseMode.HTML
+            )
+            await mark_done(job["_id"])
             await asyncio.sleep(EDIT_DELAY)
         except FloodWait as e:
-            await asyncio.sleep(e.value + 1)
-            try:
-                await msg.edit_caption(caption, parse_mode=ParseMode.HTML)
-                await asyncio.sleep(EDIT_DELAY)
-            except Exception:
-                pass
-        except errors.BadRequest:
-            try:
-                await msg.edit_caption(
-                    strip_links_and_mentions_keep_text(caption),
-                    parse_mode=ParseMode.HTML
-                )
-                await asyncio.sleep(EDIT_DELAY)
-            except Exception:
-                pass
+            await reschedule(job["_id"], delay=e.value + 2)
+            await asyncio.sleep(e.value)
         except errors.MessageNotModified:
-            pass
+            await mark_done(job["_id"])
         except Exception as e:
-            print(f"[QUEUE ERROR] {e}")
+            if job["retries"] >= 5:
+                print(f"[DROP] job failed permanently: {job['_id']}")
+                await mark_done(job["_id"])
+            else:
+                await reschedule(job["_id"], delay=10)
 
 @Client.on_message(filters.channel & filters.media)
 async def reCap(client, msg):
@@ -454,20 +485,15 @@ async def reCap(client, msg):
         new_caption = f"{new_caption}\n{suffix}".strip()
     if language and contains_language(raw_file_name, language):
         language = ""
-    # Clean caption
     new_caption = new_caption.strip()
     if "<" in new_caption and ">" in new_caption:
         new_caption = sanitize_caption_html(new_caption)
-    # Push caption edit job to queue
-    async with QUEUE_LOCK:
-        if chnl_id not in CHANNEL_QUEUES:
-            CHANNEL_ORDER.append(chnl_id)
-        CHANNEL_QUEUES[chnl_id].append((msg, new_caption))
-    # Optional debug (fair queue)
-    async with QUEUE_LOCK:
-        total_jobs = sum(len(q) for q in CHANNEL_QUEUES.values())
-    if total_jobs % 10 == 0 and total_jobs > 0:
-        print(f"[QUEUE] Pending jobs: {total_jobs}")
+    await enqueue_caption({
+        "chat_id": msg.chat.id,
+        "message_id": msg.id,
+        "caption": new_caption
+    })
+
 
 
 # ---------------- Helper functions ----------------
