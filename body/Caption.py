@@ -12,7 +12,7 @@ from Script import script
 from body.database import *  
 from body.file_forward import *  
 from collections import deque, defaultdict
-
+MESSAGE_LINK_RE = re.compile(r"(?:https?://)?t\.me/(?:c/\d+|[A-Za-z0-9_]+)/(\d+)")
 EDIT_DELAY = 2.0  # seconds (not exceed 1.5)
 WORKERS = 3       # make 2 if crash and edit delay 2.2
 CHANNEL_CACHE = {}
@@ -23,6 +23,16 @@ bot_data = {
     "prefix_set": {},
     "replace_words_set": {}
 }
+
+def extract_msg_id_from_text(text: str) -> int | None:
+    if not text:
+        return None
+    m = MESSAGE_LINK_RE.search(text)
+    if m:
+        return int(m.group(1))
+    if text.isdigit():
+        return int(text)
+    return None
 
 @Client.on_chat_member_updated()
 async def when_added_as_admin(client, chat_member_update):
@@ -203,13 +213,14 @@ async def ff_start(client, message):
     channels = await get_user_channels(uid)
     if not channels:
         return await message.reply_text("❌ No admin channels found.")
-    FF_SESSIONS[uid] = {"step": "src", "channels": channels}
+        FF_SESSIONS[uid] = {
+        "step": "src",
+        "channels": channels,
+        "expires": None  # will start later
+    }
     kb = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"ff_src_{ch['channel_id']}")] for ch in channels]
     kb.append([InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")])
-    await message.reply_text(
-        "📤 **Select SOURCE channel**",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    await message.reply_text("📤 **Select SOURCE channel**", reply_markup=InlineKeyboardMarkup(kb))
         
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("admin"))
 async def admin_help(client, message):
@@ -825,12 +836,22 @@ async def capture_user_input(client, message):
     # ================= FILE FORWARD SKIP (FIXED) =================
     if user_id in FF_SESSIONS:
         session = FF_SESSIONS.get(user_id)
-        if session and session.get("step") == "skip":
+        if session.get("expires") and session["expires"] < time.time():
+            FF_SESSIONS.pop(user_id, None)
+            await client.send_message(
+                user_id,
+                "⏰ **Forward request expired.**\nPlease start again with /file_forward"
+            )
+            return
+        if session.get("step") == "skip":
             text = (message.text or "").strip()
-            if text.isdigit():
-                session["skip"] = int(text)
+            msg_id = extract_msg_id_from_text(text)
+            if msg_id:
+                session["skip"] = msg_id
                 session["step"] = "queue"
                 await enqueue_forward_jobs(client, user_id)
+            else:
+                await client.send_message(user_id, "❌ Invalid link.\nSend a **Telegram message link** or message ID.")
             return
     # =============================================================
     active_users = (
