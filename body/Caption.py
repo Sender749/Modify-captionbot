@@ -777,7 +777,7 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
     return new_text
 
 # ---------------- Function Handler ----------------
-@Client.on_message(filters.private & ~filters.command)
+@Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
     active_users = (
