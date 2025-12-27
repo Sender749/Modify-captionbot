@@ -137,18 +137,19 @@ async def show_start_ui(
             [InlineKeyboardButton("ℹ️ About", callback_data="about_cb")],
         ]
     )
+    text = script.START_TXT.format(mention=mention)
     if edit_message:
         await edit_message.edit_text(
-            text=script.START_TXT.format(mention=mention),
+            text=text,
             reply_markup=keyboard,
             disable_web_page_preview=True
         )
     else:
-        await client.send_photo(
+        await client.send_message(
             chat_id=chat_id,
-            photo=SILICON_PIC,
-            caption=script.START_TXT.format(mention=mention),
-            reply_markup=keyboard
+            text=text,
+            reply_markup=keyboard,
+            disable_web_page_preview=True
         )
 
 @Client.on_callback_query(filters.regex("^about_cb$"))
@@ -165,6 +166,7 @@ async def about_callback(client: Client, query: CallbackQuery):
     await query.message.edit_text(
         text=text,
         reply_markup=keyboard,
+        parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
 
