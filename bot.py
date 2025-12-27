@@ -5,9 +5,11 @@ import pkgutil
 from pyrogram import Client, errors
 from pyrogram.errors import FloodWait
 from info import *
+from body.database import *
+from body.Caption import *
+from body.file_forward import *
 
 PLUGIN_ROOT = "body"
-
 
 class Bot(Client):
     def __init__(self):
