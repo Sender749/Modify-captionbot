@@ -2,7 +2,6 @@ import os
 import asyncio
 from pyrogram import Client, errors
 from info import *
-from body.Caption import caption_worker, WORKERS
 
 class Bot(Client):
     def __init__(self):
@@ -19,8 +18,8 @@ class Bot(Client):
     async def start(self):
         await super().start()
     # ---- START CAPTION QUEUE WORKERS ----
-        for _ in range(WORKERS):
-            asyncio.create_task(caption_worker(self))
+        for _ in range(Caption.WORKERS):
+            asyncio.create_task(Caption.caption_worker(self))
         me = await self.get_me()
         self.force_channel = FORCE_SUB
 
