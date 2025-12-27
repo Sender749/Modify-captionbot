@@ -821,9 +821,18 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 # ---------------- Function Handler ----------------
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
-    if message.from_user.id in FF_SESSIONS:
-        return
     user_id = message.from_user.id
+    # ================= FILE FORWARD SKIP (FIXED) =================
+    if user_id in FF_SESSIONS:
+        session = FF_SESSIONS.get(user_id)
+        if session and session.get("step") == "skip":
+            text = (message.text or "").strip()
+            if text.isdigit():
+                session["skip"] = int(text)
+                session["step"] = "queue"
+                await enqueue_forward_jobs(client, user_id)
+            return
+    # =============================================================
     active_users = (
         set(bot_data.get("caption_set", {})) |
         set(bot_data.get("block_words_set", {})) |
