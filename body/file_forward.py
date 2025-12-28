@@ -8,10 +8,6 @@ from body.database import *
 
 FF_SESSIONS = {}
 
-FORWARD_QUEUE = defaultdict(deque)   # source_id -> deque[jobs]
-FORWARD_ORDER = deque()
-FORWARD_LOCK = asyncio.Lock()
-
 FORWARD_WORKERS = 2
 BASE_DELAY = 0.6
 
@@ -82,79 +78,57 @@ async def ff_dst(client, query):
 
 
 # ---------- ENQUEUE ----------
-async def enqueue_forward_jobs(client, uid):
+async def enqueue_forward_jobs(client: Client, uid: int):
     s = FF_SESSIONS[uid]
     src = s["source"]
     dst = s["destination"]
-    target_id = s["skip"]
-
-    jobs = []
-    async for msg in client.get_chat_history(src, reverse=True):
+    skip_id = s["skip"]
+    s["total"] = 0
+    async for msg in client.get_chat_history(src, offset_id=skip_id, reverse=True):
         if not msg.media:
             continue
-        if msg.id <= target_id:
-            continue
-
-        jobs.append({
-            "user": uid,
+        await enqueue_forward({
+            "user_id": uid,
             "src": src,
             "dst": dst,
             "msg_id": msg.id,
-            "source_title": s["source_title"],
-            "destination_title": s["destination_title"],
             "chat_id": s["chat_id"],
             "ui_msg": s["msg_id"],
-            "done": 0,
-            "total": None,
-            "start": time.time()
+            "source_title": s["source_title"],
+            "destination_title": s["destination_title"],
+            "total": None
         })
-
-    total = len(jobs)
-    if total == 0:
+        s["total"] += 1
+    if s["total"] == 0:
         await client.edit_message_text(
             s["chat_id"],
             s["msg_id"],
-            "⚠️ **No files found after this message ID.**"
+            "⚠️ **No files found after this message ID**"
         )
         FF_SESSIONS.pop(uid, None)
         return
-
-    async with FORWARD_LOCK:
-        FORWARD_QUEUE[src].extend(jobs)
-        if src not in FORWARD_ORDER:
-            FORWARD_ORDER.append(src)
-        for j in FORWARD_QUEUE[src]:
-            j["total"] = total
-
+    await forward_queue.update_many(
+        {"src": src, "dst": dst, "total": None},
+        {"$set": {"total": s["total"]}}
+    )
     await client.edit_message_text(
         s["chat_id"],
         s["msg_id"],
         f"🚚 **Forwarding started**\n\n"
         f"📤 {s['source_title']}\n"
-        f"📥 {s['destination_title']}\n\n"
+        f"📥 {s['destination_title']}\n"
         f"📦 Total files: `{total}`",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")]]
         )
     )
 
-
 # ---------- WORKER ----------
 async def forward_worker(client: Client):
     while True:
-        job = None
-        async with FORWARD_LOCK:
-            if FORWARD_ORDER:
-                ch = FORWARD_ORDER.popleft()
-                q = FORWARD_QUEUE[ch]
-                job = q.popleft()
-                if q:
-                    FORWARD_ORDER.append(ch)
-                else:
-                    FORWARD_QUEUE.pop(ch, None)
-
+        job = await fetch_forward_job()
         if not job:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
             continue
 
         try:
@@ -164,27 +138,37 @@ async def forward_worker(client: Client):
                 message_id=job["msg_id"]
             )
 
-            job["done"] += 1
-            await update_progress(client, job)
+            await forward_done(job["_id"])
+            await update_forward_progress(client, job)
+
+            # auto-clear session when done
+            remaining = await forward_queue.count_documents({
+                "src": job["src"],
+                "dst": job["dst"]
+            })
+            if remaining == 0:
+                FF_SESSIONS.pop(job.get("user_id"), None)
+
             await asyncio.sleep(BASE_DELAY)
 
         except FloodWait as e:
-            await asyncio.sleep(e.value + 1)
-            async with FORWARD_LOCK:
-                FORWARD_QUEUE[job["src"]].appendleft(job)
-                FORWARD_ORDER.append(job["src"])
+            await forward_retry(job["_id"], e.value + 2)
+            await asyncio.sleep(e.value)
 
         except Exception:
-            await asyncio.sleep(2)
+            await forward_retry(job["_id"], 5)
 
 
 # ---------- PROGRESS ----------
-async def update_progress(client, job):
-    done, total = job["done"], job["total"]
-    elapsed = time.time() - job["start"]
+async def update_forward_progress(client: Client, job):
+    total = job.get("total", 0)
+    done = total - await forward_queue.count_documents({
+        "src": job["src"],
+        "dst": job["dst"]
+    })
+    elapsed = time.time() - job.get("started", time.time())
     speed = done / elapsed if elapsed else 0
     eta = (total - done) / speed if speed else 0
-
     text = (
         "🚚 **File Forwarding**\n\n"
         f"📤 {job['source_title']}\n"
@@ -193,7 +177,6 @@ async def update_progress(client, job):
         f"📦 {done}/{total}\n"
         f"⏱ ETA: {fmt(eta)}"
     )
-
     try:
         await client.edit_message_text(
             job["chat_id"],
@@ -205,7 +188,6 @@ async def update_progress(client, job):
         )
     except:
         pass
-
     if done >= total:
         await client.edit_message_text(
             job["chat_id"],
@@ -216,15 +198,21 @@ async def update_progress(client, job):
             f"📦 {total} files forwarded"
         )
 
-
 # ---------- CANCEL ----------
 @Client.on_callback_query(filters.regex("^ff_cancel$"))
 async def ff_cancel(client, query):
-    FF_SESSIONS.pop(query.from_user.id, None)
-    await query.message.edit_text("❌ Forwarding cancelled.")
-
+    uid = query.from_user.id
+    s = FF_SESSIONS.pop(uid, None)
+    if s:
+        await forward_queue.delete_many({
+            "src": s["source"],
+            "dst": s["destination"]
+        })
+    await query.message.edit_text("❌ **Forwarding cancelled successfully.**")
 
 # ---------- START WORKERS ----------
 def on_bot_start(client: Client):
     for _ in range(FORWARD_WORKERS):
         asyncio.create_task(forward_worker(client))
+
+
