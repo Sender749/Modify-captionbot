@@ -32,6 +32,7 @@ class Bot(Client):
             await super().start()
         await self._run_plugin_startup_hooks()
         await ensure_queue_indexes()
+        await ensure_forward_indexes()
         await recover_stuck_jobs()
         for _ in range(WORKERS):
             asyncio.create_task(caption_worker(self))
