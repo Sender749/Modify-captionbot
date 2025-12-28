@@ -1,7 +1,4 @@
-import asyncio
-import re
-import os
-import sys
+import sys, time, os, re, asyncio
 from typing import Tuple, List, Optional
 from pyrogram import Client, filters, errors, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberUpdated, CallbackQuery
@@ -213,10 +210,10 @@ async def ff_start(client, message):
     channels = await get_user_channels(uid)
     if not channels:
         return await message.reply_text("❌ No admin channels found.")
-        FF_SESSIONS[uid] = {
+    FF_SESSIONS[uid] = {
         "step": "src",
         "channels": channels,
-        "expires": None  # will start later
+        "expires": None  
     }
     kb = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"ff_src_{ch['channel_id']}")] for ch in channels]
     kb.append([InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")])
