@@ -93,20 +93,42 @@ async def enqueue_forward_jobs(client: Client, uid: int):
     skip_id = s["skip"]
 
     s["total"] = 0
-
-    # we will read channel history AFTER skip_id
     collected = []
 
-    async for msg in client.get_chat_history(src, offset_id=skip_id, reverse=True):
-        # stop if history truly ends
-        if not msg:
-            break
+    # -------- get last message id in channel --------
+    latest_id = None
+    async for m in client.get_chat_history(src, limit=1):
+        latest_id = m.id
+    if not latest_id:
+        await client.edit_message_text(
+            s["chat_id"],
+            s["msg_id"],
+            "⚠️ Unable to read channel history."
+        )
+        FF_SESSIONS.pop(uid, None)
+        return
 
-        # only real media, ignore text/polls/etc
-        if msg.media:
-            collected.append(msg)
+    # -------- scan FORWARD: skip_id+1 → latest_id --------
+    current = skip_id + 1
+    BATCH = 200
 
-    # nothing found
+    while current <= latest_id:
+        ids = list(range(current, min(current + BATCH, latest_id + 1)))
+
+        try:
+            msgs = await client.get_messages(src, ids)
+        except Exception:
+            msgs = []
+
+        for msg in msgs:
+            if not msg:
+                continue
+            if msg.media:
+                collected.append(msg)
+
+        current += BATCH
+
+    # -------- nothing collected --------
     if not collected:
         await client.edit_message_text(
             s["chat_id"],
@@ -116,8 +138,8 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         FF_SESSIONS.pop(uid, None)
         return
 
-    # enqueue oldest → newest
-    for msg in collected:
+    # -------- enqueue oldest → newest --------
+    for msg in sorted(collected, key=lambda x: x.id):
         await enqueue_forward({
             "user_id": uid,
             "src": src,
@@ -131,13 +153,13 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         })
         s["total"] += 1
 
-    # write total count on all jobs for this batch
+    # -------- write total back into queue --------
     await forward_queue.update_many(
         {"src": src, "dst": dst, "total": 0},
         {"$set": {"total": s["total"]}}
     )
 
-    # UI confirm
+    # -------- UI --------
     await client.edit_message_text(
         s["chat_id"],
         s["msg_id"],
@@ -152,7 +174,6 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         )
     )
 
-
 # ---------- WORKER ----------
 async def forward_worker(client: Client):
     print("[FORWARD] worker started")
@@ -162,6 +183,7 @@ async def forward_worker(client: Client):
         if not job:
             await asyncio.sleep(1)
             continue
+        print(f"[FORWARD] processing job: {job.get('msg_id')}")
         try:
             await client.copy_message(
                 chat_id=job["dst"],
