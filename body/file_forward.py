@@ -134,7 +134,7 @@ async def enqueue_forward_jobs(client: Client, uid: int):
             "ui_msg": s["msg_id"],
             "source_title": s["source_title"],
             "destination_title": s["destination_title"],
-            "total": None
+            "total": 0
         })
         s["total"] += 1
 
@@ -150,7 +150,7 @@ async def enqueue_forward_jobs(client: Client, uid: int):
 
     # store total count in queued docs
     await forward_queue.update_many(
-        {"src": src, "dst": dst, "total": None},
+        {"src": src, "dst": dst, "total": 0},
         {"$set": {"total": s["total"]}}
     )
 
@@ -174,6 +174,7 @@ async def forward_worker(client: Client):
     print("[FORWARD] worker started")
     while True:
         job = await fetch_forward_job()
+        print("[FORWARD] fetched job:", job)
         if not job:
             await asyncio.sleep(1)
             continue
