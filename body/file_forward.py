@@ -171,6 +171,7 @@ async def enqueue_forward_jobs(client: Client, uid: int):
 
 # ---------- WORKER ----------
 async def forward_worker(client: Client):
+    print("[FORWARD] worker started")
     while True:
         job = await fetch_forward_job()
         if not job:
@@ -184,18 +185,14 @@ async def forward_worker(client: Client):
             )
             await forward_done(job["_id"])
             await update_forward_progress(client, job)
-            remaining = await forward_queue.count_documents({
-                "src": job["src"],
-                "dst": job["dst"]
-            })
-            if remaining == 0:
-                FF_SESSIONS.pop(job.get("user_id"), None)
-            await asyncio.sleep(BASE_DELAY)
         except FloodWait as e:
+            print(f"[FORWARD] FloodWait {e.value}s")
             await forward_retry(job["_id"], e.value + 2)
             await asyncio.sleep(e.value)
-        except Exception:
+        except Exception as e:
+            print(f"[FORWARD ERROR] {repr(e)} on msg {job['msg_id']}")
             await forward_retry(job["_id"], 5)
+        await asyncio.sleep(BASE_DELAY)
 
 
 # ---------- PROGRESS ----------
