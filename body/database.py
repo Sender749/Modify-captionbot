@@ -33,7 +33,7 @@ async def fetch_forward_job():
         {"status": "pending"},
         {"$set": {"status": "processing", "started": time.time()}},
         sort=[("ts", 1)],
-        return_document=ReturnDocument.AFTER
+        return_document=True   
     )
 
 async def forward_done(job_id):
