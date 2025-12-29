@@ -4,7 +4,6 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import FloodWait
 from body.database import *
-from body.Caption import extract_msg_id_from_text
 
 FF_SESSIONS = {}
 
