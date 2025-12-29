@@ -83,13 +83,29 @@ async def ff_dst(client, query):
 # ---------- ENQUEUE ----------
 async def enqueue_forward_jobs(client: Client, uid: int):
     s = FF_SESSIONS[uid]
+
     src = s["source"]
     dst = s["destination"]
     skip_id = s["skip"]
+
     s["total"] = 0
-    async for msg in client.get_chat_history(src, offset_id=skip_id, reverse=True):
-        if not msg.media:
-            continue
+
+    # collect all messages after skip id
+    collected = []
+
+    async for msg in client.get_chat_history(src, offset_id=skip_id):
+        # stop when reach or below skip id
+        if msg.id <= skip_id:
+            break
+
+        if msg.media:
+            collected.append(msg)
+
+    # now oldest -> newest order
+    collected.reverse()
+
+    # enqueue
+    for msg in collected:
         await enqueue_forward({
             "user_id": uid,
             "src": src,
@@ -102,18 +118,24 @@ async def enqueue_forward_jobs(client: Client, uid: int):
             "total": None
         })
         s["total"] += 1
+
+    # no media found
     if s["total"] == 0:
         await client.edit_message_text(
             s["chat_id"],
             s["msg_id"],
-            "⚠️ **No files found after this message ID**"
+            "⚠️ No media messages found after this message ID."
         )
         FF_SESSIONS.pop(uid, None)
         return
+
+    # update totals in queued docs
     await forward_queue.update_many(
         {"src": src, "dst": dst, "total": None},
         {"$set": {"total": s["total"]}}
     )
+
+    # UI update
     await client.edit_message_text(
         s["chat_id"],
         s["msg_id"],
