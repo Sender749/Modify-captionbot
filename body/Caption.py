@@ -836,8 +836,9 @@ async def capture_user_input(client, message):
         set(bot_data.get("replace_words_set", {})) |
         set(bot_data.get("prefix_set", {})) |
         set(bot_data.get("suffix_set", {}))
+        set(FF_SESSIONS.keys())
     )
-    if user_id not in active_users:
+    if (user_id not in active_users) and (user_id not in FF_SESSIONS):
         return
     text = (
         message.text.html if message.text else
@@ -919,10 +920,7 @@ async def capture_user_input(client, message):
             chat_id=user_id,
             message_id=instr_msg_id,
             text="✅ Prefix updated!",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
-            )
-        )
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]))
         return
 
     # ---------- SUFFIX ----------
