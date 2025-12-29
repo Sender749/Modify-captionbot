@@ -36,6 +36,8 @@ class Bot(Client):
         await recover_stuck_jobs()
         for _ in range(WORKERS):
             asyncio.create_task(caption_worker(self))
+        from body.file_forward import on_bot_start
+        on_bot_start(self)
         me = await self.get_me()
         self.force_channel = FORCE_SUB
         if FORCE_SUB:
