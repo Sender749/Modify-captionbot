@@ -31,6 +31,13 @@ def extract_msg_id_from_text(text: str) -> int | None:
         return int(text)
     return None
 
+@Client.on_startup()
+async def start_forward_workers(client):
+    from body.file_forward import on_bot_start
+    from body.database import ensure_forward_indexes
+    await ensure_forward_indexes()
+    on_bot_start(client)
+
 @Client.on_chat_member_updated()
 async def when_added_as_admin(client, chat_member_update):
     try:
