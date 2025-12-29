@@ -87,8 +87,8 @@ async def ff_dst(client, query):
 # ---------- ENQUEUE ----------
 async def enqueue_forward_jobs(client: Client, uid: int):
     """
-    Collects all media after skip_id and enqueues them for forwarding.
-    Works with gaps, deleted messages, topics, and without reverse arg.
+    Collects all media AFTER skip_id and enqueues them for forwarding.
+    Works without reverse flag and without iter_history().
     """
     s = FF_SESSIONS[uid]
 
@@ -99,17 +99,16 @@ async def enqueue_forward_jobs(client: Client, uid: int):
     s["total"] = 0
     collected = []
 
-    # -------- iterate backward like Silicon example --------
-    # Pyrogram iterates from newest -> oldest by default
-    async for msg in client.iter_history(src):
+    # -------- iterate newest → oldest --------
+    async for msg in client.iter_messages(src):
         if not msg:
             continue
 
-        # stop when reaching skipped msg or earlier
+        # stop when reaching skipped message or earlier
         if msg.id <= skip_id:
             break
 
-        # only real media
+        # only real media files
         if msg.media:
             collected.append(msg)
 
@@ -123,7 +122,7 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         FF_SESSIONS.pop(uid, None)
         return
 
-    # -------- oldest → newest (because we collected backwards) --------
+    # -------- oldest → newest (reverse collected order) --------
     collected.sort(key=lambda m: m.id)
 
     for msg in collected:
@@ -140,7 +139,7 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         })
         s["total"] += 1
 
-    # store total into queued jobs
+    # update total in queued jobs
     await forward_queue.update_many(
         {"src": src, "dst": dst, "total": 0},
         {"$set": {"total": s["total"]}}
