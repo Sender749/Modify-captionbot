@@ -2,6 +2,7 @@ import motor.motor_asyncio
 from info import *
 from typing import Optional
 import time
+from pymongo import ReturnDocument
 
 _CHANNEL_CACHE = {}
 CACHE_TTL = 30  # seconds
@@ -32,7 +33,7 @@ async def fetch_forward_job():
         {"status": "pending"},
         {"$set": {"status": "processing", "started": time.time()}},
         sort=[("ts", 1)],
-        return_document=True
+        return_document=ReturnDocument.AFTER
     )
 
 async def forward_done(job_id):
