@@ -10,6 +10,10 @@ FF_SESSIONS = {}
 FORWARD_WORKERS = 2
 BASE_DELAY = 0.6
 
+# ---------- START WORKERS ----------
+def on_bot_start(client: Client):
+    for _ in range(FORWARD_WORKERS):
+        asyncio.create_task(forward_worker(client))
 
 # ---------- UI HELPERS ----------
 def bar(done, total, size=20):
@@ -218,9 +222,6 @@ async def ff_cancel(client, query):
         })
     await query.message.edit_text("❌ **Forwarding cancelled successfully.**")
 
-# ---------- START WORKERS ----------
-def on_bot_start(client: Client):
-    for _ in range(FORWARD_WORKERS):
-        asyncio.create_task(forward_worker(client))
+
 
 
