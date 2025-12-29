@@ -7,7 +7,7 @@ from pyrogram.enums import ParseMode
 from info import *
 from Script import script
 from body.database import *  
-from body.file_forward import *  
+from body.file_forward import FF_SESSIONS, enqueue_forward_jobs
 from collections import deque, defaultdict
 MESSAGE_LINK_RE = re.compile(r"(?:https?://)?t\.me/(?:c/\d+|[A-Za-z0-9_]+)/(\d+)")
 EDIT_DELAY = 2.0  # seconds (not exceed 1.5)
@@ -830,27 +830,6 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
-    # ================= FILE FORWARD SKIP (FIXED) =================
-    if user_id in FF_SESSIONS:
-        session = FF_SESSIONS.get(user_id)
-        if session.get("expires") and session["expires"] < time.time():
-            FF_SESSIONS.pop(user_id, None)
-            await client.send_message(
-                user_id,
-                "⏰ **Forward request expired.**\nPlease start again with /file_forward"
-            )
-            return
-        if session.get("step") == "skip":
-            text = (message.text or "").strip()
-            msg_id = extract_msg_id_from_text(text)
-            if msg_id:
-                session["skip"] = msg_id
-                session["step"] = "queue"
-                await enqueue_forward_jobs(client, user_id)
-            else:
-                await client.send_message(user_id, "❌ Invalid link.\nSend a **Telegram message link** or message ID.")
-            return
-    # =============================================================
     active_users = (
         set(bot_data.get("caption_set", {})) |
         set(bot_data.get("block_words_set", {})) |
@@ -966,4 +945,29 @@ async def capture_user_input(client, message):
             )
         )
         return
+
+    # ================= FILE FORWARD SKIP HANDLER =================
+    if user_id in FF_SESSIONS:
+        session = FF_SESSIONS[user_id]
+        if session.get("expires") and session["expires"] < time.time():
+            FF_SESSIONS.pop(user_id, None)
+            await message.reply_text("⏰ Session expired.\nStart again using /file_forward")
+            return
+        if session.get("step") == "skip":
+            raw = (message.text or "").strip()
+            msg_id = extract_msg_id_from_text(raw)
+            if msg_id is None:
+                await message.reply_text(
+                    "❌ Invalid message.\n\n"
+                    "Send:\n"
+                    "• Telegram message link\n"
+                    "• OR message ID number"
+                )
+                return
+            session["skip"] = int(msg_id)
+            session["step"] = "queue"
+            await message.reply_text("✅ OK!\n🚚 Forwarding will start…")
+            await enqueue_forward_jobs(client, user_id)
+            return
+
 
