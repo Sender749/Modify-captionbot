@@ -86,6 +86,10 @@ async def ff_dst(client, query):
 
 # ---------- ENQUEUE ----------
 async def enqueue_forward_jobs(client: Client, uid: int):
+    """
+    Collects all media after skip_id and enqueues them for forwarding.
+    Works with gaps, deleted messages, topics, and without reverse arg.
+    """
     s = FF_SESSIONS[uid]
 
     src = s["source"]
@@ -95,40 +99,21 @@ async def enqueue_forward_jobs(client: Client, uid: int):
     s["total"] = 0
     collected = []
 
-    # -------- get last message id in channel --------
-    latest_id = None
-    async for m in client.get_chat_history(src, limit=1):
-        latest_id = m.id
-    if not latest_id:
-        await client.edit_message_text(
-            s["chat_id"],
-            s["msg_id"],
-            "⚠️ Unable to read channel history."
-        )
-        FF_SESSIONS.pop(uid, None)
-        return
+    # -------- iterate backward like Silicon example --------
+    # Pyrogram iterates from newest -> oldest by default
+    async for msg in client.iter_history(src):
+        if not msg:
+            continue
 
-    # -------- scan FORWARD: skip_id+1 → latest_id --------
-    current = skip_id + 1
-    BATCH = 200
+        # stop when reaching skipped msg or earlier
+        if msg.id <= skip_id:
+            break
 
-    while current <= latest_id:
-        ids = list(range(current, min(current + BATCH, latest_id + 1)))
+        # only real media
+        if msg.media:
+            collected.append(msg)
 
-        try:
-            msgs = await client.get_messages(src, ids)
-        except Exception:
-            msgs = []
-
-        for msg in msgs:
-            if not msg:
-                continue
-            if msg.media:
-                collected.append(msg)
-
-        current += BATCH
-
-    # -------- nothing collected --------
+    # nothing found
     if not collected:
         await client.edit_message_text(
             s["chat_id"],
@@ -138,8 +123,10 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         FF_SESSIONS.pop(uid, None)
         return
 
-    # -------- enqueue oldest → newest --------
-    for msg in sorted(collected, key=lambda x: x.id):
+    # -------- oldest → newest (because we collected backwards) --------
+    collected.sort(key=lambda m: m.id)
+
+    for msg in collected:
         await enqueue_forward({
             "user_id": uid,
             "src": src,
@@ -153,13 +140,13 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         })
         s["total"] += 1
 
-    # -------- write total back into queue --------
+    # store total into queued jobs
     await forward_queue.update_many(
         {"src": src, "dst": dst, "total": 0},
         {"$set": {"total": s["total"]}}
     )
 
-    # -------- UI --------
+    # UI confirmation
     await client.edit_message_text(
         s["chat_id"],
         s["msg_id"],
