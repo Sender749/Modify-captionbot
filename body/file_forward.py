@@ -87,17 +87,43 @@ async def ff_dst(client, query):
 # ---------- ENQUEUE ----------
 async def enqueue_forward_jobs(client: Client, uid: int):
     s = FF_SESSIONS[uid]
+
     src = s["source"]
     dst = s["destination"]
     skip_id = s["skip"]
+
     s["total"] = 0
     collected = []
-    async for msg in client.get_chat_history(src, offset_id=skip_id):
-        if msg.id <= skip_id:
+
+    # start scanning immediately after skipped message
+    current = skip_id + 1
+
+    # stop after N missing messages in a row → means end of chat reached
+    missing_streak = 0
+    MAX_MISSING = 30
+
+    while True:
+        try:
+            msg = await client.get_messages(src, current)
+        except Exception:
+            msg = None
+
+        if not msg:
+            missing_streak += 1
+            if missing_streak >= MAX_MISSING:
+                break
+            current += 1
             continue
+
+        missing_streak = 0
+
+        # collect only messages with media
         if msg.media:
             collected.append(msg)
-    collected.reverse()
+
+        current += 1
+
+    # enqueue in oldest → newest order
     for msg in collected:
         await enqueue_forward({
             "user_id": uid,
@@ -112,7 +138,7 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         })
         s["total"] += 1
 
-    # no media found
+    # nothing found
     if s["total"] == 0:
         await client.edit_message_text(
             s["chat_id"],
@@ -122,7 +148,7 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         FF_SESSIONS.pop(uid, None)
         return
 
-    # update totals in queued docs
+    # store total count in queued docs
     await forward_queue.update_many(
         {"src": src, "dst": dst, "total": None},
         {"$set": {"total": s["total"]}}
@@ -132,10 +158,12 @@ async def enqueue_forward_jobs(client: Client, uid: int):
     await client.edit_message_text(
         s["chat_id"],
         s["msg_id"],
-        f"🚚 <b>Forwarding started</b>\n\n"
-        f"📤 {s['source_title']}\n"
-        f"📥 {s['destination_title']}\n"
-        f"📦 Total files: <code>{s['total']}</code>",
+        (
+            "🚚 <b>Forwarding started</b>\n\n"
+            f"📤 {s['source_title']}\n"
+            f"📥 {s['destination_title']}\n"
+            f"📦 Total files: <code>{s['total']}</code>"
+        ),
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")]]
         )
