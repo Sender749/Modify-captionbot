@@ -830,15 +830,14 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
-    active_users = (
-        set(bot_data.get("caption_set", {})) |
-        set(bot_data.get("block_words_set", {})) |
-        set(bot_data.get("replace_words_set", {})) |
-        set(bot_data.get("prefix_set", {})) |
-        set(bot_data.get("suffix_set", {}))
-        set(FF_SESSIONS.keys())
-    )
-    if (user_id not in active_users) and (user_id not in FF_SESSIONS):
+    active_users = set()
+    active_users.update(bot_data.get("caption_set", {}).keys())
+    active_users.update(bot_data.get("block_words_set", {}).keys())
+    active_users.update(bot_data.get("replace_words_set", {}).keys())
+    active_users.update(bot_data.get("prefix_set", {}).keys())
+    active_users.update(bot_data.get("suffix_set", {}).keys())
+    active_users.update(FF_SESSIONS.keys())  
+    if user_id not in active_users:
         return
     text = (
         message.text.html if message.text else
