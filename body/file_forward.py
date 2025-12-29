@@ -83,28 +83,17 @@ async def ff_dst(client, query):
 # ---------- ENQUEUE ----------
 async def enqueue_forward_jobs(client: Client, uid: int):
     s = FF_SESSIONS[uid]
-
     src = s["source"]
     dst = s["destination"]
     skip_id = s["skip"]
-
     s["total"] = 0
-
-    # collect all messages after skip id
     collected = []
-
     async for msg in client.get_chat_history(src, offset_id=skip_id):
-        # stop when reach or below skip id
         if msg.id <= skip_id:
-            break
-
+            continue
         if msg.media:
             collected.append(msg)
-
-    # now oldest -> newest order
     collected.reverse()
-
-    # enqueue
     for msg in collected:
         await enqueue_forward({
             "user_id": uid,
