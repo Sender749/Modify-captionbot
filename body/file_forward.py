@@ -93,37 +93,30 @@ async def enqueue_forward_jobs(client: Client, uid: int):
     skip_id = s["skip"]
 
     s["total"] = 0
+
+    # we will read channel history AFTER skip_id
     collected = []
 
-    # start scanning immediately after skipped message
-    current = skip_id + 1
-
-    # stop after N missing messages in a row → means end of chat reached
-    missing_streak = 0
-    MAX_MISSING = 30
-
-    while True:
-        try:
-            msg = await client.get_messages(src, current)
-        except Exception:
-            msg = None
-
+    async for msg in client.get_chat_history(src, offset_id=skip_id, reverse=True):
+        # stop if history truly ends
         if not msg:
-            missing_streak += 1
-            if missing_streak >= MAX_MISSING:
-                break
-            current += 1
-            continue
+            break
 
-        missing_streak = 0
-
-        # collect only messages with media
+        # only real media, ignore text/polls/etc
         if msg.media:
             collected.append(msg)
 
-        current += 1
+    # nothing found
+    if not collected:
+        await client.edit_message_text(
+            s["chat_id"],
+            s["msg_id"],
+            "⚠️ No media messages found after this message ID."
+        )
+        FF_SESSIONS.pop(uid, None)
+        return
 
-    # enqueue in oldest → newest order
+    # enqueue oldest → newest
     for msg in collected:
         await enqueue_forward({
             "user_id": uid,
@@ -138,23 +131,13 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         })
         s["total"] += 1
 
-    # nothing found
-    if s["total"] == 0:
-        await client.edit_message_text(
-            s["chat_id"],
-            s["msg_id"],
-            "⚠️ No media messages found after this message ID."
-        )
-        FF_SESSIONS.pop(uid, None)
-        return
-
-    # store total count in queued docs
+    # write total count on all jobs for this batch
     await forward_queue.update_many(
         {"src": src, "dst": dst, "total": 0},
         {"$set": {"total": s["total"]}}
     )
 
-    # UI update
+    # UI confirm
     await client.edit_message_text(
         s["chat_id"],
         s["msg_id"],
@@ -168,6 +151,7 @@ async def enqueue_forward_jobs(client: Client, uid: int):
             [[InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")]]
         )
     )
+
 
 # ---------- WORKER ----------
 async def forward_worker(client: Client):
