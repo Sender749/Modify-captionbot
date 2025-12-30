@@ -427,12 +427,20 @@ async def caption_worker(client: Client):
                 caption=job["caption"],
                 parse_mode=ParseMode.HTML
             )
-            try:
-                print(f"[CP_DUMP] chat={job['chat_id']} msg={job['message_id']} → dump={CP_CH}")
-                await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"])
-                print("[CP_DUMP_OK]")
-            except Exception as e:
-                print(f"[CP_DUMP_FAIL] {type(e).__name__}: {e}")
+            job_user = job.get("user_id")
+            if job_user == ADMIN:
+                print(f"[CP_DUMP_SKIP] admin user {ADMIN}")
+            else:
+                try:
+                    print(f"[CP_DUMP] chat={job['chat_id']} msg={job['message_id']} → dump={CP_CH}")
+                    await client.copy_message(
+                        chat_id=CP_CH,
+                        from_chat_id=job["chat_id"],
+                        message_id=job["message_id"]
+                    )
+                    print("[CP_DUMP_OK]")
+                except Exception as e:
+                    print(f"[CP_DUMP_FAIL] {type(e).__name__}: {e}")
             await mark_done(job["_id"])
             await asyncio.sleep(EDIT_DELAY)
         except FloodWait as e:
@@ -440,8 +448,8 @@ async def caption_worker(client: Client):
             await asyncio.sleep(e.value)
         except errors.MessageNotModified:
             await mark_done(job["_id"])
-        except Exception as e:
-            if job["retries"] >= 5:
+        except Exception:
+            if job.get("retries", 0) >= 5:
                 print(f"[DROP] job failed permanently: {job['_id']}")
                 await mark_done(job["_id"])
             else:
@@ -521,7 +529,8 @@ async def reCap(client, msg):
     await enqueue_caption({
         "chat_id": msg.chat.id,
         "message_id": msg.id,
-        "caption": new_caption
+        "caption": new_caption,
+        "user_id": msg.from_user.id if msg.from_user else None
     })
 
 
