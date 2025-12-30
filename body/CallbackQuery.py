@@ -144,7 +144,7 @@ async def delete_caption(client, query):
     channel_id = int(query.matches[0].group(1))
     await delete_channel_caption(channel_id)
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
-    await query.message.edit_text(f"✅ Caption deleted. Now using default caption.", reply_markup=InlineKeyboardMarkup(buttons))
+    await query.message.edit_text(f"✅ Caption deleted.\n❌ No caption set currently.", reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex(r'^capfont_(-?\d+)$'))
 async def caption_font(client, query):
