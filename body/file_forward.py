@@ -86,71 +86,52 @@ async def ff_dst(client, query):
 
 # ---------- ENQUEUE ----------
 async def enqueue_forward_jobs(client: Client, uid: int):
-    s = FF_SESSIONS[uid]
+    """
+    Collect all media AFTER skip_id by probing message IDs forward.
+    Does NOT use get_history (bots are not allowed).
+    """
 
-    # -------- DEBUG SESSION --------
-    print("DEBUG >> SESSION:", s)
+    s = FF_SESSIONS[uid]
 
     src = s["source"]
     dst = s["destination"]
     skip_id = int(s["skip"])
 
-    print("DEBUG >> SRC:", src)
-    print("DEBUG >> DST:", dst)
-    print("DEBUG >> SKIP:", skip_id)
+    print(f"[FF] START ENQUEUE src={src} dst={dst} skip={skip_id}")
 
     s["total"] = 0
-    collected = []
+    msg_id = skip_id + 1
 
-    # -------- 1) get LAST message id --------
-    latest_id = None
-    try:
-        async for m in client.get_chat_history(src, limit=1):
-            latest_id = m.id
-    except Exception as e:
-        print("DEBUG >> ERROR reading history:", e)
+    # internal safety stop (prevents infinite loop only)
+    consecutive_missing = 0
+    MAX_CONSECUTIVE_MISSING = 500
 
-    print("DEBUG >> LATEST MESSAGE ID:", latest_id)
-
-    if not latest_id:
-        print("DEBUG >> cannot read channel history — abort")
-        return
-
-    # -------- 2) collect messages --------
-    current = skip_id + 1
-    BATCH = 200
-
-    while current <= latest_id:
-        ids = list(range(current, min(latest_id + 1, current + BATCH)))
-
-        print("DEBUG >> FETCHING IDS:", ids[:3], "...", ids[-3:])
-
+    while True:
         try:
-            msgs = await client.get_messages(src, ids)
-        except Exception as e:
-            print("DEBUG >> get_messages ERROR:", e)
-            msgs = []
+            msg = await client.get_messages(src, msg_id)
+        except Exception:
+            msg = None
 
-        for msg in msgs:
-            if not msg:
-                continue
-            if msg.media:
-                collected.append(msg)
+        # -------- no such message id --------
+        if not msg:
+            consecutive_missing += 1
 
-        current += BATCH
+            if consecutive_missing >= MAX_CONSECUTIVE_MISSING:
+                print("[FF] stopping: too many missing IDs ahead")
+                break
 
-    print("DEBUG >> COLLECTED COUNT:", len(collected))
+            msg_id += 1
+            continue
 
-    if not collected:
-        print("DEBUG >> NO MEDIA AFTER SKIP")
-        return
+        # reset gap counter
+        consecutive_missing = 0
 
-    collected.sort(key=lambda m: m.id)
+        # -------- visible but not media --------
+        if not msg.media:
+            msg_id += 1
+            continue
 
-    # -------- enqueue jobs --------
-    for msg in collected:
-        print("DEBUG >> ENQUEUE MSG ID:", msg.id)
-
+        # -------- enqueue --------
         await enqueue_forward({
             "user_id": uid,
             "src": src,
@@ -164,16 +145,17 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         })
 
         s["total"] += 1
+        msg_id += 1
 
-    # confirm queue count
-    q = await forward_queue.count_documents({})
-    print("DEBUG >> FORWARD_QUEUE SIZE AFTER ENQUEUE:", q)
+    # store total count for progress display
     await forward_queue.update_many(
         {"src": src, "dst": dst, "total": 0},
         {"$set": {"total": s["total"]}}
     )
 
-    # -------- 6) UI update --------
+    print(f"[FF] ENQUEUED TOTAL = {s['total']}")
+
+    # final UI update
     await client.edit_message_text(
         s["chat_id"],
         s["msg_id"],
@@ -188,12 +170,14 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         )
     )
 
+
 # ---------- WORKER ----------
 async def forward_worker(client: Client):
     print("[FORWARD] worker started")
     while True:
         job = await fetch_forward_job()
-        print("[FORWARD] fetched job:", job)
+    if job:
+        print("[FORWARD] job:", job.get("msg_id"))
         q = await forward_queue.count_documents({})
         print("[FORWARD] CURRENT QUEUE SIZE:", q)
         if not job:
