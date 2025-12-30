@@ -46,6 +46,28 @@ async def forward_retry(job_id, delay):
          "$inc": {"retries": 1}}
     )
 
+# ---------------- Dump skip functions ----------------
+
+async def set_dump_skip(channel_id: int, status: bool):
+    await chnl_ids.update_one(
+        {"chnl_id": channel_id},
+        {"$set": {"dump_skip": bool(status)}},
+        upsert=True
+    )
+
+async def remove_dump_skip(channel_id: int):
+    await chnl_ids.update_one(
+        {"chnl_id": channel_id},
+        {"$unset": {"dump_skip": ""}}
+    )
+
+async def is_dump_skip(channel_id: int) -> bool:
+    doc = await chnl_ids.find_one({"chnl_id": channel_id})
+    return bool(doc.get("dump_skip", False)) if doc else False
+
+async def get_all_dump_skip_channels():
+    cursor = chnl_ids.find({"dump_skip": True})
+    return [doc async for doc in cursor]
 
 # ---------------- Queue System for Caption ----------------
 async def ensure_queue_indexes():
