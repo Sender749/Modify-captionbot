@@ -946,13 +946,18 @@ async def capture_user_input(client, message):
     # ================= FILE FORWARD SKIP HANDLER =================
     if user_id in FF_SESSIONS:
         session = FF_SESSIONS[user_id]
+
+        # session expired
         if session.get("expires") and session["expires"] < time.time():
             FF_SESSIONS.pop(user_id, None)
             await message.reply_text("⏰ Session expired.\nStart again using /file_forward")
             return
+
+        # waiting for skip message id / link
         if session.get("step") == "skip":
             raw = (message.text or "").strip()
             msg_id = extract_msg_id_from_text(raw)
+
             if msg_id is None:
                 await message.reply_text(
                     "❌ Invalid message.\n\n"
@@ -961,9 +966,36 @@ async def capture_user_input(client, message):
                     "• OR message ID number"
                 )
                 return
+
+            # store skip id
             session["skip"] = int(msg_id)
             session["step"] = "queue"
-            await message.reply_text("✅ OK!\n🚚 Forwarding will start…")
+
+            # -------- delete user's skip input --------
+            try:
+                await message.delete()
+            except:
+                pass
+
+            # -------- delete previous instruction message --------
+            try:
+                await client.delete_messages(
+                    session["chat_id"],
+                    session["msg_id"]
+                )
+            except:
+                pass
+
+            # -------- send NEW progress message --------
+            progress_msg = await client.send_message(
+                session["chat_id"],
+                "🚚 Preparing forwarding…"
+            )
+
+            # store progress message id for live updates
+            session["msg_id"] = progress_msg.id
+
+            # -------- enqueue jobs --------
             await enqueue_forward_jobs(client, user_id)
             return
 
