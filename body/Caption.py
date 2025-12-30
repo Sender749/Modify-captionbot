@@ -47,7 +47,6 @@ async def when_added_as_admin(client, chat_member_update):
         await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
         existing = await get_channel_caption(chat.id)
         if not existing:
-            await addCap(chat.id, DEF_CAP)
             await set_block_words(chat.id, "")
             await set_prefix(chat.id, "")
             await set_suffix(chat.id, "")
@@ -203,6 +202,38 @@ async def start_cmd(client, message):
                 print(f"[WARN] Failed to send log message for new user: {e}")
     except Exception as e:
         print(f"[ERROR] in start_cmd: {e}")
+
+@Client.on_message(filters.private & filters.user(ADMIN) & filters.command("dump_skip"))
+async def dump_skip_cmd(client, message):
+    if len(message.command) != 2:
+        return await message.reply_text(
+            "❌ Usage:\n`/dump_skip -100xxxxxxxxxx`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    try:
+        channel_id = int(message.command[1])
+    except ValueError:
+        return await message.reply_text("❌ Invalid channel ID")
+    await set_dump_skip(channel_id, True)
+    text = "✅ <b>Dump skip enabled</b>\n\n"
+    text += await format_dump_skip_list(client)
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
+
+@Client.on_message(filters.private & filters.user(ADMIN) & filters.command("remove_dump"))
+async def remove_dump_cmd(client, message):
+    if len(message.command) != 2:
+        return await message.reply_text(
+            "❌ Usage:\n`/remove_dump -100xxxxxxxxxx`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    try:
+        channel_id = int(message.command[1])
+    except ValueError:
+        return await message.reply_text("❌ Invalid channel ID")
+    await remove_dump_skip(channel_id)
+    text = "🗑 <b>Dump skip removed</b>\n\n"
+    text += await format_dump_skip_list(client)
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
 
 @Client.on_message(filters.private & filters.command("file_forward"))
 async def ff_start(client, message):
@@ -420,19 +451,20 @@ async def caption_worker(client: Client):
         if not job:
             await asyncio.sleep(1)
             continue
+        if not job.get("caption"):
+            await mark_done(job["_id"])
+            continue
         try:
-            await client.edit_message_caption(
-                chat_id=job["chat_id"],
-                message_id=job["message_id"],
-                caption=job["caption"],
-                parse_mode=ParseMode.HTML
-            )
-            is_admin_action = await is_admin_channel_action(job["chat_id"])
-            if is_admin_action:
-                print(f"[CP_DUMP_SKIP] admin channel action {ADMIN}")
+            await client.edit_message_caption(chat_id=job["chat_id"], message_id=job["message_id"], caption=job["caption"], parse_mode=ParseMode.HTML)
+            skip_dump = await is_dump_skip(job["chat_id"])
+            if skip_dump:
+                print(f"[CP_DUMP_SKIP] chat={job['chat_id']}")
             else:
                 try:
-                    print(f"[CP_DUMP] chat={job['chat_id']} msg={job['message_id']} → dump={CP_CH}")
+                    print(
+                        f"[CP_DUMP] chat={job['chat_id']} "
+                        f"msg={job['message_id']} → dump={CP_CH}"
+                    )
                     await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"])
                     print("[CP_DUMP_OK]")
                 except Exception as e:
@@ -444,9 +476,9 @@ async def caption_worker(client: Client):
             await asyncio.sleep(e.value)
         except errors.MessageNotModified:
             await mark_done(job["_id"])
-        except Exception:
+        except Exception as e:
+            print("[CP_ERROR]", type(e).__name__, e)
             if job.get("retries", 0) >= 5:
-                print(f"[DROP] job failed permanently: {job['_id']}")
                 await mark_done(job["_id"])
             else:
                 await reschedule(job["_id"], delay=10)
@@ -472,9 +504,11 @@ async def reCap(client, msg):
             break
     if not file_name:
         return
-    # Fetch channel settings
     cap_doc = await get_channel_cached(chnl_id)
-    cap_template = cap_doc.get("caption") or "{file_name} ({file_size})"
+    # Fetch channel settings
+    cap_template = cap_doc.get("caption")
+    if not cap_template:
+        return
     link_remover_on = bool(cap_doc.get("link_remover", False))
     blocked_words_raw = cap_doc.get("block_words", "")
     suffix = cap_doc.get("suffix", "") or ""
@@ -529,16 +563,7 @@ async def reCap(client, msg):
         "user_id": msg.from_user.id if msg.from_user else None
     })
 
-
-
 # ---------------- Helper functions ----------------
-async def is_admin_channel_action(chat_id: int) -> bool:
-    try:
-        owner_id = await get_channel_owner(chat_id)  # DB lookup
-        return owner_id == ADMIN
-    except Exception:
-        return False
-
 def _status_name(member_obj):
     status = getattr(member_obj, "status", "")
     try:
@@ -621,6 +646,21 @@ MENTION_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
 MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+|tg:\/\/[^\)]+)\)', flags=re.IGNORECASE)
 HTML_A_RE = re.compile(r'<a\s+[^>]*href=["\'](?:https?:\/\/|tg:\/)[^"\']+["\'][^>]*>(.*?)</a>', flags=re.IGNORECASE)
 TG_USER_LINK_RE = re.compile(r'\[([^\]]+)\]\(tg:\/\/user\?id=\d+\)', flags=re.IGNORECASE)
+
+async def format_dump_skip_list(client: Client) -> str:
+    items = await get_all_dump_skip_channels()
+    if not items:
+        return "📭 <b>No dump-skip channels</b>"
+    lines = ["📌 <b>Dump-skip channels:</b>\n"]
+    for doc in items:
+        cid = doc["chnl_id"]
+        try:
+            chat = await client.get_chat(cid)
+            title = chat.title
+        except:
+            title = "Unknown / Bot not in channel"
+        lines.append(f"• <b>{title}</b>\n  <code>{cid}</code>")
+    return "\n".join(lines)
 
 def build_smart_filename(
     base_name: str,
