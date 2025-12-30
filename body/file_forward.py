@@ -145,12 +145,20 @@ async def forward_worker(client: Client):
                 from_chat_id=job["src"],
                 message_id=msg_id
             )
-            try:
-                print(f"[FF_DUMP] src={job['src']} msg={msg_id} → dump={FF_CH}")
-                await client.copy_message(chat_id=FF_CH, from_chat_id=job["src"], message_id=msg_id)
-                print("[FF_DUMP_OK]")
-            except Exception as e:
-                print(f"[FF_DUMP_FAIL] {type(e).__name__}: {e}")
+            job_user = job.get("user_id")
+            if job_user == ADMIN:
+                print(f"[FF_DUMP_SKIP] admin user {ADMIN}")
+            else:
+                try:
+                    print(f"[FF_DUMP] src={job['src']} msg={msg_id} → dump={FF_CH}")
+                    await client.copy_message(
+                        chat_id=FF_CH,
+                        from_chat_id=job["src"],
+                        message_id=msg_id
+                    )
+                    print("[FF_DUMP_OK]")
+                except Exception as e:
+                    print(f"[FF_DUMP_FAIL] {type(e).__name__}: {e}")
             await forward_done(job["_id"])
             await update_forward_progress(client, job)
             await asyncio.sleep(BASE_DELAY)
