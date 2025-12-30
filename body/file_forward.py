@@ -15,24 +15,6 @@ def on_bot_start(client: Client):
     for _ in range(FORWARD_WORKERS):
         asyncio.create_task(forward_worker(client))
 
-# ---------- UI HELPERS ----------
-def bar(done, total, size=20):
-    if total <= 0:
-        return "░" * size
-    filled = int(size * done / total)
-    return "█" * filled + "░" * (size - filled)
-
-def fmt(sec):
-    sec = int(sec)
-    if sec < 60:
-        return f"{sec}s"
-    m, s = divmod(sec, 60)
-    if m < 60:
-        return f"{m}m {s}s"
-    h, m = divmod(m, 60)
-    return f"{h}h {m}m"
-
-
 # ---------- SOURCE ----------
 @Client.on_callback_query(filters.regex(r"^ff_src_(-?\d+)$"))
 async def ff_src(client, query):
@@ -170,7 +152,6 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         )
     )
 
-
 # ---------- WORKER ----------
 async def forward_worker(client: Client):
     print("[FORWARD] worker started")
@@ -178,74 +159,81 @@ async def forward_worker(client: Client):
     while True:
         job = await fetch_forward_job()
 
-        # quiet mode: only log when a job exists
-        if job:
-            print("[FORWARD] job:", job.get("msg_id"))
-
-        # nothing in queue → sleep
+        # no job -> idle
         if not job:
             await asyncio.sleep(1)
             continue
 
-        print(f"[FORWARD] processing msg_id={job.get('msg_id')}")
+        msg_id = job.get("msg_id")
+        print(f"[FORWARD] processing msg_id={msg_id}")
 
         try:
             await client.copy_message(
                 chat_id=job["dst"],
                 from_chat_id=job["src"],
-                message_id=job["msg_id"]
+                message_id=msg_id
             )
 
-            # mark done
+            # success
             await forward_done(job["_id"])
 
-            # progress UI
+            # update UI
             await update_forward_progress(client, job)
 
+            # small base delay to smooth bursts
+            await asyncio.sleep(BASE_DELAY)
+
+        # -------- FLOOD WAIT --------
         except FloodWait as e:
-            print(f"[FORWARD] FloodWait {e.value}s")
-            await forward_retry(job["_id"], e.value + 2)
-            await asyncio.sleep(e.value)
+            delay = int(e.value) + 2
 
-        except Exception as e:
-            print(f"[FORWARD ERROR] {repr(e)} on msg {job['msg_id']}")
-            await forward_retry(job["_id"], 5)
+            # exponential backoff by retry count
+            retries = job.get("retries", 0)
+            delay += min(60, retries * 2)
 
-        await asyncio.sleep(BASE_DELAY)
+            # anti-thundering herd (small random jitter)
+            delay += int(time.time()) % 3
 
+            print(f"[FORWARD] FloodWait {e.value}s -> reschedule after {delay}s")
 
+            await forward_retry(job["_id"], delay)
+
+            # DO NOT sleep entire FloodWait — free worker
+            await asyncio.sleep(1)
+
+        # -------- OTHER ERRORS --------
+        except Exception as ex:
+            print(f"[FORWARD ERROR] {repr(ex)} on msg {msg_id}")
+
+            retries = job.get("retries", 0)
+
+            if retries >= 5:
+                # give up after 5 attempts
+                await forward_done(job["_id"])
+                continue
+
+            # mild delay then retry
+            await forward_retry(job["_id"], 10)
+            await asyncio.sleep(1)
 
 # ---------- PROGRESS ----------
 async def update_forward_progress(client: Client, job):
-    # how many total messages belong to this forward session
     total = await forward_queue.count_documents({
         "src": job["src"],
         "dst": job["dst"]
-    }) + 1  # include the one just finished
-
-    # how many remaining now
+    }) + 1
     remaining = await forward_queue.count_documents({
         "src": job["src"],
         "dst": job["dst"]
     })
-
-    done = total - remaining
-
-    # time estimate
-    elapsed = time.time() - job.get("started", time.time())
-    speed = done / elapsed if elapsed else 0
-    eta = (total - done) / speed if speed else 0
-
+    sent = total - remaining
     text = (
-        "🚚 <b>File Forwarding</b>\n\n"
+        "🚚 <b>Forwarding in progress…</b>\n\n"
         f"📤 <b>Source:</b> {job['source_title']}\n"
         f"📥 <b>Destination:</b> {job['destination_title']}\n\n"
-        f"{bar(done, total)}\n"
-        f"📦 <b>{done}</b> / <b>{total}</b>\n"
-        f"⏱ <b>ETA:</b> {fmt(eta)}"
+        f"📦 <b>Sent:</b> <code>{sent}</code>\n"
+        f"🗂 <b>Total:</b> <code>{total}</code>\n"
     )
-
-    # live progress edit
     try:
         await client.edit_message_text(
             job["chat_id"],
@@ -257,19 +245,16 @@ async def update_forward_progress(client: Client, job):
         )
     except:
         pass
-
-    # ---------- COMPLETED ----------
-    if done >= total:
+    if sent >= total:
         try:
             await client.edit_message_text(
                 job["chat_id"],
                 job["ui_msg"],
                 (
-                    "🎉 <b>Forwarding Completed</b>\n\n"
+                    "✅ <b>Forwarding completed</b>\n\n"
                     f"📤 <b>Source:</b> {job['source_title']}\n"
                     f"📥 <b>Destination:</b> {job['destination_title']}\n\n"
-                    f"📦 <b>Total files forwarded:</b> <code>{total}</code>\n"
-                    "✅ All eligible media messages were successfully copied."
+                    f"📦 <b>Total files forwarded:</b> <code>{total}</code>"
                 )
             )
         except:
