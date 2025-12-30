@@ -86,44 +86,49 @@ async def ff_dst(client, query):
 
 # ---------- ENQUEUE ----------
 async def enqueue_forward_jobs(client: Client, uid: int):
-    """
-    Forward all media AFTER skip_id using copy_message.
-    Compatible with older Pyrogram versions (no iter_history / reverse).
-    """
-
     s = FF_SESSIONS[uid]
+
+    # -------- DEBUG SESSION --------
+    print("DEBUG >> SESSION:", s)
 
     src = s["source"]
     dst = s["destination"]
     skip_id = int(s["skip"])
 
+    print("DEBUG >> SRC:", src)
+    print("DEBUG >> DST:", dst)
+    print("DEBUG >> SKIP:", skip_id)
+
     s["total"] = 0
     collected = []
 
-    # -------- 1) get LAST message id in source channel --------
+    # -------- 1) get LAST message id --------
     latest_id = None
-    async for m in client.get_chat_history(src, limit=1):
-        latest_id = m.id
+    try:
+        async for m in client.get_chat_history(src, limit=1):
+            latest_id = m.id
+    except Exception as e:
+        print("DEBUG >> ERROR reading history:", e)
+
+    print("DEBUG >> LATEST MESSAGE ID:", latest_id)
 
     if not latest_id:
-        await client.edit_message_text(
-            s["chat_id"],
-            s["msg_id"],
-            "⚠️ Cannot read channel history."
-        )
-        FF_SESSIONS.pop(uid, None)
+        print("DEBUG >> cannot read channel history — abort")
         return
 
-    # -------- 2) scan FORWARD from skip+1 to latest --------
+    # -------- 2) collect messages --------
     current = skip_id + 1
     BATCH = 200
 
     while current <= latest_id:
         ids = list(range(current, min(latest_id + 1, current + BATCH)))
 
+        print("DEBUG >> FETCHING IDS:", ids[:3], "...", ids[-3:])
+
         try:
             msgs = await client.get_messages(src, ids)
-        except Exception:
+        except Exception as e:
+            print("DEBUG >> get_messages ERROR:", e)
             msgs = []
 
         for msg in msgs:
@@ -134,21 +139,18 @@ async def enqueue_forward_jobs(client: Client, uid: int):
 
         current += BATCH
 
-    # -------- 3) nothing found --------
+    print("DEBUG >> COLLECTED COUNT:", len(collected))
+
     if not collected:
-        await client.edit_message_text(
-            s["chat_id"],
-            s["msg_id"],
-            "⚠️ No media found after this message ID."
-        )
-        FF_SESSIONS.pop(uid, None)
+        print("DEBUG >> NO MEDIA AFTER SKIP")
         return
 
-    # -------- 4) ensure order oldest → newest --------
     collected.sort(key=lambda m: m.id)
 
-    # -------- 5) enqueue to DB queue (worker already runs) --------
+    # -------- enqueue jobs --------
     for msg in collected:
+        print("DEBUG >> ENQUEUE MSG ID:", msg.id)
+
         await enqueue_forward({
             "user_id": uid,
             "src": src,
@@ -160,9 +162,12 @@ async def enqueue_forward_jobs(client: Client, uid: int):
             "destination_title": s["destination_title"],
             "total": 0
         })
+
         s["total"] += 1
 
-    # update total into every queued job
+    # confirm queue count
+    q = await forward_queue.count_documents({})
+    print("DEBUG >> FORWARD_QUEUE SIZE AFTER ENQUEUE:", q)
     await forward_queue.update_many(
         {"src": src, "dst": dst, "total": 0},
         {"$set": {"total": s["total"]}}
@@ -189,6 +194,8 @@ async def forward_worker(client: Client):
     while True:
         job = await fetch_forward_job()
         print("[FORWARD] fetched job:", job)
+        q = await forward_queue.count_documents({})
+        print("[FORWARD] CURRENT QUEUE SIZE:", q)
         if not job:
             await asyncio.sleep(1)
             continue
