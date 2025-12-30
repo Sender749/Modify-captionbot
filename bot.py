@@ -36,8 +36,6 @@ class Bot(Client):
         await recover_stuck_jobs()
         for _ in range(WORKERS):
             asyncio.create_task(caption_worker(self))
-        from body.file_forward import on_bot_start
-        on_bot_start(self)
         me = await self.get_me()
         self.force_channel = FORCE_SUB
         if FORCE_SUB:
@@ -46,6 +44,10 @@ class Bot(Client):
             except Exception:
                 print("⚠️ Bot must be admin in force-sub channel")
                 self.force_channel = None
+        print("========== DUMP CHANNEL DEBUG ==========")
+        print(f"FF_CH = {FF_CH} | type = {type(FF_CH)}")
+        print(f"CP_CH = {CP_CH} | type = {type(CP_CH)}")
+        print("========================================")
         print(f"{me.first_name} is started ✨")
         try:
             await self.send_message(ADMIN, f"**{me.first_name} started ✨**")
