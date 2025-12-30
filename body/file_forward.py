@@ -217,23 +217,35 @@ async def forward_worker(client: Client):
 
 # ---------- PROGRESS ----------
 async def update_forward_progress(client: Client, job):
-    total = job.get("total", 0)
+    # how many total messages belong to this forward session
+    total = await forward_queue.count_documents({
+        "src": job["src"],
+        "dst": job["dst"]
+    }) + 1  # include the one just finished
+
+    # how many remaining now
     remaining = await forward_queue.count_documents({
         "src": job["src"],
         "dst": job["dst"]
     })
+
     done = total - remaining
+
+    # time estimate
     elapsed = time.time() - job.get("started", time.time())
     speed = done / elapsed if elapsed else 0
     eta = (total - done) / speed if speed else 0
+
     text = (
         "🚚 <b>File Forwarding</b>\n\n"
-        f"📤 {job['source_title']}\n"
-        f"📥 {job['destination_title']}\n\n"
+        f"📤 <b>Source:</b> {job['source_title']}\n"
+        f"📥 <b>Destination:</b> {job['destination_title']}\n\n"
         f"{bar(done, total)}\n"
-        f"📦 {done}/{total}\n"
-        f"⏱ ETA: {fmt(eta)}"
+        f"📦 <b>{done}</b> / <b>{total}</b>\n"
+        f"⏱ <b>ETA:</b> {fmt(eta)}"
     )
+
+    # live progress edit
     try:
         await client.edit_message_text(
             job["chat_id"],
@@ -245,15 +257,23 @@ async def update_forward_progress(client: Client, job):
         )
     except:
         pass
+
+    # ---------- COMPLETED ----------
     if done >= total:
-        await client.edit_message_text(
-            job["chat_id"],
-            job["ui_msg"],
-            f"✅ <b>Completed</b>\n\n"
-            f"📤 {job['source_title']}\n"
-            f"📥 {job['destination_title']}\n"
-            f"📦 {total} files forwarded"
-        )
+        try:
+            await client.edit_message_text(
+                job["chat_id"],
+                job["ui_msg"],
+                (
+                    "🎉 <b>Forwarding Completed</b>\n\n"
+                    f"📤 <b>Source:</b> {job['source_title']}\n"
+                    f"📥 <b>Destination:</b> {job['destination_title']}\n\n"
+                    f"📦 <b>Total files forwarded:</b> <code>{total}</code>\n"
+                    "✅ All eligible media messages were successfully copied."
+                )
+            )
+        except:
+            pass
 
 # ---------- CANCEL ----------
 @Client.on_callback_query(filters.regex("^ff_cancel$"))
