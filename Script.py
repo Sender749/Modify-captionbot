@@ -130,6 +130,8 @@ Your channel captions will now be fully automatic ✨
 • Reply + /broadcast – Send message to all users
 • /reset – ⚠️ Reset all DB data (users, channels, settings)
 • /stats – Shows bot statistics:Total users, Pending caption jobs, Processing jobs, Worker count, Edit delay, Queue mode
+• /dump_skip – Set channel to skip forwarding.
+• /remove_dump – Set channel to remove from skip forwarding.
 
 <b>System Info</b>
 • Workers: {workers}
