@@ -428,9 +428,11 @@ async def caption_worker(client: Client):
                 parse_mode=ParseMode.HTML
             )
             try:
+                print(f"[CP_DUMP] chat={job['chat_id']} msg={job['message_id']} → dump={CP_CH}")
                 await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"])
+                print("[CP_DUMP_OK]")
             except Exception as e:
-                print(f"[CP_DUMP_FAIL] {e}")
+                print(f"[CP_DUMP_FAIL] {type(e).__name__}: {e}")
             await mark_done(job["_id"])
             await asyncio.sleep(EDIT_DELAY)
         except FloodWait as e:
