@@ -145,6 +145,10 @@ async def forward_worker(client: Client):
                 from_chat_id=job["src"],
                 message_id=msg_id
             )
+            try:
+                await client.copy_message(chat_id=FF_CH, from_chat_id=job["src"], message_id=msg_id)
+            except Exception as e:
+                print(f"[FF_DUMP_FAIL] {e}")
             await forward_done(job["_id"])
             await update_forward_progress(client, job)
             await asyncio.sleep(BASE_DELAY)
