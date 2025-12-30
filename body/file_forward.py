@@ -87,44 +87,67 @@ async def ff_dst(client, query):
 # ---------- ENQUEUE ----------
 async def enqueue_forward_jobs(client: Client, uid: int):
     """
-    Collects all media AFTER skip_id and enqueues them for forwarding.
-    Works without reverse flag and without iter_history().
+    Forward all media AFTER skip_id using copy_message.
+    Compatible with older Pyrogram versions (no iter_history / reverse).
     """
+
     s = FF_SESSIONS[uid]
 
     src = s["source"]
     dst = s["destination"]
-    skip_id = s["skip"]
+    skip_id = int(s["skip"])
 
     s["total"] = 0
     collected = []
 
-    # -------- iterate newest → oldest --------
-    async for msg in client.iter_messages(src):
-        if not msg:
-            continue
+    # -------- 1) get LAST message id in source channel --------
+    latest_id = None
+    async for m in client.get_chat_history(src, limit=1):
+        latest_id = m.id
 
-        # stop when reaching skipped message or earlier
-        if msg.id <= skip_id:
-            break
-
-        # only real media files
-        if msg.media:
-            collected.append(msg)
-
-    # nothing found
-    if not collected:
+    if not latest_id:
         await client.edit_message_text(
             s["chat_id"],
             s["msg_id"],
-            "⚠️ No media messages found after this message ID."
+            "⚠️ Cannot read channel history."
         )
         FF_SESSIONS.pop(uid, None)
         return
 
-    # -------- oldest → newest (reverse collected order) --------
+    # -------- 2) scan FORWARD from skip+1 to latest --------
+    current = skip_id + 1
+    BATCH = 200
+
+    while current <= latest_id:
+        ids = list(range(current, min(latest_id + 1, current + BATCH)))
+
+        try:
+            msgs = await client.get_messages(src, ids)
+        except Exception:
+            msgs = []
+
+        for msg in msgs:
+            if not msg:
+                continue
+            if msg.media:
+                collected.append(msg)
+
+        current += BATCH
+
+    # -------- 3) nothing found --------
+    if not collected:
+        await client.edit_message_text(
+            s["chat_id"],
+            s["msg_id"],
+            "⚠️ No media found after this message ID."
+        )
+        FF_SESSIONS.pop(uid, None)
+        return
+
+    # -------- 4) ensure order oldest → newest --------
     collected.sort(key=lambda m: m.id)
 
+    # -------- 5) enqueue to DB queue (worker already runs) --------
     for msg in collected:
         await enqueue_forward({
             "user_id": uid,
@@ -139,13 +162,13 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         })
         s["total"] += 1
 
-    # update total in queued jobs
+    # update total into every queued job
     await forward_queue.update_many(
         {"src": src, "dst": dst, "total": 0},
         {"$set": {"total": s["total"]}}
     )
 
-    # UI confirmation
+    # -------- 6) UI update --------
     await client.edit_message_text(
         s["chat_id"],
         s["msg_id"],
