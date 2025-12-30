@@ -174,32 +174,45 @@ async def enqueue_forward_jobs(client: Client, uid: int):
 # ---------- WORKER ----------
 async def forward_worker(client: Client):
     print("[FORWARD] worker started")
+
     while True:
         job = await fetch_forward_job()
-    if job:
-        print("[FORWARD] job:", job.get("msg_id"))
-        q = await forward_queue.count_documents({})
-        print("[FORWARD] CURRENT QUEUE SIZE:", q)
+
+        # quiet mode: only log when a job exists
+        if job:
+            print("[FORWARD] job:", job.get("msg_id"))
+
+        # nothing in queue → sleep
         if not job:
             await asyncio.sleep(1)
             continue
-        print(f"[FORWARD] processing job: {job.get('msg_id')}")
+
+        print(f"[FORWARD] processing msg_id={job.get('msg_id')}")
+
         try:
             await client.copy_message(
                 chat_id=job["dst"],
                 from_chat_id=job["src"],
                 message_id=job["msg_id"]
             )
+
+            # mark done
             await forward_done(job["_id"])
+
+            # progress UI
             await update_forward_progress(client, job)
+
         except FloodWait as e:
             print(f"[FORWARD] FloodWait {e.value}s")
             await forward_retry(job["_id"], e.value + 2)
             await asyncio.sleep(e.value)
+
         except Exception as e:
             print(f"[FORWARD ERROR] {repr(e)} on msg {job['msg_id']}")
             await forward_retry(job["_id"], 5)
+
         await asyncio.sleep(BASE_DELAY)
+
 
 
 # ---------- PROGRESS ----------
