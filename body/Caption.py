@@ -427,17 +427,13 @@ async def caption_worker(client: Client):
                 caption=job["caption"],
                 parse_mode=ParseMode.HTML
             )
-            job_user = job.get("user_id")
-            if job_user == ADMIN:
-                print(f"[CP_DUMP_SKIP] admin user {ADMIN}")
+            is_admin_action = await is_admin_channel_action(job["chat_id"])
+            if is_admin_action:
+                print(f"[CP_DUMP_SKIP] admin channel action {ADMIN}")
             else:
                 try:
                     print(f"[CP_DUMP] chat={job['chat_id']} msg={job['message_id']} → dump={CP_CH}")
-                    await client.copy_message(
-                        chat_id=CP_CH,
-                        from_chat_id=job["chat_id"],
-                        message_id=job["message_id"]
-                    )
+                    await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"])
                     print("[CP_DUMP_OK]")
                 except Exception as e:
                     print(f"[CP_DUMP_FAIL] {type(e).__name__}: {e}")
@@ -536,6 +532,13 @@ async def reCap(client, msg):
 
 
 # ---------------- Helper functions ----------------
+async def is_admin_channel_action(chat_id: int) -> bool:
+    try:
+        owner_id = await get_channel_owner(chat_id)  # DB lookup
+        return owner_id == ADMIN
+    except Exception:
+        return False
+
 def _status_name(member_obj):
     status = getattr(member_obj, "status", "")
     try:
