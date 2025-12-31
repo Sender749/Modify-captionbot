@@ -8,7 +8,7 @@ from body.database import *
 
 FF_SESSIONS = {}
 CANCELLED_SESSIONS = set()
-FORWARD_WORKERS = 3
+FORWARD_WORKERS = 2
 BASE_DELAY = 1
 
 ANIM_FRAMES = [
