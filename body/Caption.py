@@ -108,17 +108,11 @@ async def auto_delete_message(msg, delay: int):
 async def settings_button_handler(client: Client, query: CallbackQuery):
     await query.answer()
     loading = await query.message.edit_text("⚙️ Loading your channels...")
-    task = asyncio.create_task(animate_loading(loading))
-    async def edit_sender(text, **kwargs):
-        await loading.edit_text(text, **kwargs)
-    try:
-        await user_settings(
-            client,
-            user=query.from_user,
-            send_func=edit_sender
-        )
-    finally:
-        task.cancel()
+    await user_settings(
+        client,
+        user=query.from_user,
+        send_func=loading.edit_text
+    )
 
 @Client.on_callback_query(filters.regex("^help$"))
 async def help_callback(client, query: CallbackQuery):
@@ -345,15 +339,7 @@ async def restart_bot(client, message):
 @Client.on_message(filters.command("settings") & filters.private)
 async def settings_cmd(client, message):
     loading = await message.reply_text("⚙️ Loading your channels...")
-    task = asyncio.create_task(animate_loading(loading))
-    try:
-        await user_settings(
-            client,
-            user=message.from_user,
-            send_func=loading.edit_text
-        )
-    finally:
-        task.cancel()
+    await user_settings(client, user=message.from_user, send_func=loading.edit_text)
 
 async def user_settings(client: Client,*,user,send_func,):
     user_id = user.id
