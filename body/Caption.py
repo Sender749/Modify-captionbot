@@ -31,6 +31,21 @@ def extract_msg_id_from_text(text: str) -> int | None:
         return int(text)
     return None
 
+async def animate_loading(msg):
+    frames = [
+        "⚙️ Loading your channels",
+        "⚙️ Loading your channels.",
+        "⚙️ Loading your channels..",
+        "⚙️ Loading your channels...",
+    ]
+    while True:
+        for f in frames:
+            try:
+                await msg.edit_text(f)
+            except:
+                return
+            await asyncio.sleep(0.6)
+
 @Client.on_chat_member_updated()
 async def when_added_as_admin(client, chat_member_update):
     try:
@@ -92,15 +107,18 @@ async def auto_delete_message(msg, delay: int):
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
 async def settings_button_handler(client: Client, query: CallbackQuery):
     await query.answer()
-
+    loading = await query.message.edit_text("⚙️ Loading your channels...")
+    task = asyncio.create_task(animate_loading(loading))
     async def edit_sender(text, **kwargs):
-        await query.message.edit_text(text, **kwargs)
-
-    await user_settings(
-        client,
-        user=query.from_user,
-        send_func=edit_sender
-    )
+        await loading.edit_text(text, **kwargs)
+    try:
+        await user_settings(
+            client,
+            user=query.from_user,
+            send_func=edit_sender
+        )
+    finally:
+        task.cancel()
 
 @Client.on_callback_query(filters.regex("^help$"))
 async def help_callback(client, query: CallbackQuery):
@@ -326,17 +344,30 @@ async def restart_bot(client, message):
 
 @Client.on_message(filters.command("settings") & filters.private)
 async def settings_cmd(client, message):
-    await user_settings(
-        client,
-        user=message.from_user,
-        send_func=message.reply_text
-    )
+    loading = await message.reply_text("⚙️ Loading your channels...")
+    task = asyncio.create_task(animate_loading(loading))
+    try:
+        await user_settings(
+            client,
+            user=message.from_user,
+            send_func=loading.edit_text
+        )
+    finally:
+        task.cancel()
 
 async def user_settings(client: Client,*,user,send_func,):
     user_id = user.id
     channels = await get_user_channels(user_id)
     if not channels:
-        return await send_func("You haven’t added me to any channels yet!")
+    bot = await client.get_me()
+    bot_username = bot.username or BOT_USERNAME
+    return await send_func(
+        "You haven’t added me to any channels yet!\n\n"
+        "➕ Add me as admin in your channel by below buttonx. 👇",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("➕ Add me to your channel",url=f"https://t.me/{bot_username}?startchannel=true")]]
+        ),
+        disable_web_page_preview=True
+    )
     valid_channels = []
     removed_titles = []
     async def check_channel(ch):
