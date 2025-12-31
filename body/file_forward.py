@@ -8,8 +8,8 @@ from body.database import *
 
 FF_SESSIONS = {}
 CANCELLED_SESSIONS = set()
-FORWARD_WORKERS = 2
-BASE_DELAY = 1
+FORWARD_WORKERS = 5
+BASE_DELAY = 1.1
 
 ANIM_FRAMES = [
     "🔄 Transferring files",
