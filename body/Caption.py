@@ -11,7 +11,7 @@ from body.file_forward import *
 from collections import deque, defaultdict
 MESSAGE_LINK_RE = re.compile(r"(?:https?://)?t\.me/(?:c/\d+|[A-Za-z0-9_]+)/(\d+)")
 EDIT_DELAY = 1.7  # seconds (not exceed 1.5)
-WORKERS = 5       # make 2 if crash and edit delay 2.2
+WORKERS = 3       # make 2 if crash and edit delay 2.2
 CHANNEL_CACHE = {}
 bot_data = {
     "caption_set": {},
