@@ -395,16 +395,16 @@ async def reset_db(client, message):
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("queue"))
 async def queue_status(client, message):
-    total = await queue_col.count_documents({"status": "pending"})
-    processing = await queue_col.count_documents({"status": "processing"})
-    pipeline = [
+    cap_pending = await queue_col.count_documents({"status": "pending"})
+    cap_processing = await queue_col.count_documents({"status": "processing"})
+    cap_pipeline = [
         {"$match": {"status": "pending"}},
         {"$group": {"_id": "$chat_id", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 10}
     ]
-    per_channel = []
-    async for row in queue_col.aggregate(pipeline):
+    cap_lines = []
+    async for row in queue_col.aggregate(cap_pipeline):
         ch_id = row["_id"]
         count = row["count"]
         try:
@@ -412,27 +412,76 @@ async def queue_status(client, message):
             name = chat.title
         except:
             name = "Unknown"
-        eta_sec = int(count * EDIT_DELAY / WORKERS)
-        per_channel.append(
+        eta = int(count * EDIT_DELAY / WORKERS)
+        cap_lines.append(
             f"• <b>{name}</b>\n"
             f"  ├ ID: <code>{ch_id}</code>\n"
             f"  ├ Jobs: <code>{count}</code>\n"
-            f"  └ ETA: ~{eta_sec//60}m {eta_sec%60}s"
+            f"  └ ETA: ~{eta//60}m {eta%60}s"
         )
-    eta_total = int(total * EDIT_DELAY / WORKERS)
+    cap_eta_total = int(cap_pending * EDIT_DELAY / WORKERS)
+    f_pending = await forward_queue.count_documents({"status": "pending"})
+    f_processing = await forward_queue.count_documents({"status": "processing"})
+    f_pipeline = [
+        {"$match": {"status": "pending"}},
+        {"$group": {
+            "_id": {
+                "src": "$src",
+                "dst": "$dst"
+            },
+            "count": {"$sum": 1}
+        }},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]
+    forward_lines = []
+    async for row in forward_queue.aggregate(f_pipeline):
+        src = row["_id"]["src"]
+        dst = row["_id"]["dst"]
+        count = row["count"]
+        try:
+            s_chat = await client.get_chat(src)
+            s_name = s_chat.title
+        except:
+            s_name = "Unknown"
+        try:
+            d_chat = await client.get_chat(dst)
+            d_name = d_chat.title
+        except:
+            d_name = "Unknown"
+        eta = int(count * BASE_DELAY / FORWARD_WORKERS)
+        forward_lines.append(
+            f"• <b>{s_name}</b> ➜ <b>{d_name}</b>\n"
+            f"  ├ Jobs: <code>{count}</code>\n"
+            f"  └ ETA: ~{eta//60}m {eta%60}s"
+        )
+    f_eta_total = int(f_pending * BASE_DELAY / FORWARD_WORKERS)
     text = (
-        "📥 <b>Caption Queue Status</b>\n\n"
-        f"• Pending: <code>{total}</code>\n"
-        f"• Processing: <code>{processing}</code>\n"
+        "📊 <b>QUEUE STATUS</b>\n\n"
+        "📝 <b>Caption Queue</b>\n"
+        f"• Pending: <code>{cap_pending}</code>\n"
+        f"• Processing: <code>{cap_processing}</code>\n"
         f"• Workers: <code>{WORKERS}</code>\n"
-        f"• Edit delay: <code>{EDIT_DELAY}s</code>\n"
-        f"• Global ETA: ~{eta_total//60}m {eta_total%60}s\n\n"
+        f"• Edit Delay: <code>{EDIT_DELAY}s</code>\n"
+        f"• Global ETA: ~{cap_eta_total//60}m {cap_eta_total%60}s\n\n"
     )
-    if per_channel:
-        text += "🔥 <b>Top Busy Channels</b>\n" + "\n".join(per_channel)
+    if cap_lines:
+        text += "🔥 <b>Top Busy Caption Channels</b>\n" + "\n".join(cap_lines) + "\n\n"
     else:
-        text += "✅ Queue empty."
-    await message.reply_text(text, parse_mode=ParseMode.HTML)
+        text += "✅ No caption tasks\n\n"
+    text += (
+        "📦 <b>File Forward Queue</b>\n"
+        f"• Pending: <code>{f_pending}</code>\n"
+        f"• Processing: <code>{f_processing}</code>\n"
+        f"• Workers: <code>{FORWARD_WORKERS}</code>\n"
+        f"• Base Delay: <code>{BASE_DELAY}s</code>\n"
+        f"• Global ETA: ~{f_eta_total//60}m {f_eta_total%60}s\n\n"
+    )
+    if forward_lines:
+        text += "🚚 <b>Top Forward Sessions</b>\n" + "\n".join(forward_lines)
+    else:
+        text += "✅ No forward tasks"
+    await message.reply_text(text, parse_mode=enums.ParseMode.HTML)
 
 # ---------------- Auto Caption core ----------------
 def sanitize_caption_html(text: str) -> str:
