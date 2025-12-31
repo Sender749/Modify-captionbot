@@ -11,6 +11,13 @@ CANCELLED_SESSIONS = set()
 FORWARD_WORKERS = 2
 BASE_DELAY = 1
 
+ANIM_FRAMES = [
+    "🔄 Transferring files",
+    "🔄 Transferring files.",
+    "🔄 Transferring files..",
+    "🔄 Transferring files..."
+]
+
 # ---------- START WORKERS ----------
 def on_bot_start(client: Client):
     for _ in range(FORWARD_WORKERS):
@@ -116,10 +123,10 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         s["chat_id"],
         s["msg_id"],
         (
-            "🚚 <b>Forwarding started</b>\n\n"
-            f"📤 {s['source_title']}\n"
-            f"📥 {s['destination_title']}\n"
-            f"📦 Total files: <code>{s['total']}</code>"
+            f"📤 <b>{s['source_title']}</b>\n"
+            f"         ⬇️⬇️⬇️\n"
+            f"📥 <b>{s['destination_title']}</b>\n\n"
+            "🔄 Preparing files for transfer…"
         ),
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")]]))
 
@@ -175,21 +182,14 @@ async def forward_worker(client: Client):
 # ---------- PROGRESS ----------
 async def update_forward_progress(client: Client, job):
     session = job.get("session_id")
-    total = await forward_queue.count_documents(
-        {"session_id": session}
-    ) + 1
-    remaining = await forward_queue.count_documents(
-        {"session_id": session}
-    )
-    sent = total - remaining
     if session in CANCELLED_SESSIONS:
         return
+    frame = ANIM_FRAMES[int(time.time()) % len(ANIM_FRAMES)]
     text = (
-        "🚚 <b>Forwarding in progress…</b>\n\n"
-        f"📤 <b>Source:</b> {job['source_title']}\n"
-        f"📥 <b>Destination:</b> {job['destination_title']}\n\n"
-        f"📦 <b>Sent:</b> <code>{sent}</code>\n"
-        f"🗂 <b>Total:</b> <code>{total}</code>\n"
+        f"📤 <b>{job['source_title']}</b>\n"
+        f"         ⬇️⬇️⬇️\n"
+        f"📥 <b>{job['destination_title']}</b>\n\n"
+        f"{frame}"
     )
     try:
         await client.edit_message_text(
@@ -199,7 +199,9 @@ async def update_forward_progress(client: Client, job):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")]]))
     except:
         pass
-    if sent >= total:
+    remaining = await forward_queue.count_documents({"session_id": session_id})
+    if remaining == 0:
+        total = job.get("total", 0)
         try:
             await client.edit_message_text(
                 job["chat_id"],
