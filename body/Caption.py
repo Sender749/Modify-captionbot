@@ -7,7 +7,7 @@ from pyrogram.enums import ParseMode
 from info import *
 from Script import script
 from body.database import *  
-from body.file_forward import FF_SESSIONS, enqueue_forward_jobs
+from body.file_forward import *
 from collections import deque, defaultdict
 MESSAGE_LINK_RE = re.compile(r"(?:https?://)?t\.me/(?:c/\d+|[A-Za-z0-9_]+)/(\d+)")
 EDIT_DELAY = 2.0  # seconds (not exceed 1.5)
