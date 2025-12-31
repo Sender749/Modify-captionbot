@@ -359,15 +359,15 @@ async def user_settings(client: Client,*,user,send_func,):
     user_id = user.id
     channels = await get_user_channels(user_id)
     if not channels:
-    bot = await client.get_me()
-    bot_username = bot.username or BOT_USERNAME
-    return await send_func(
-        "You haven’t added me to any channels yet!\n\n"
-        "➕ Add me as admin in your channel by below buttonx. 👇",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("➕ Add me to your channel",url=f"https://t.me/{bot_username}?startchannel=true")]]
-        ),
-        disable_web_page_preview=True
-    )
+        bot = await client.get_me()
+        bot_username = bot.username or BOT_USERNAME
+        return await send_func(
+            "You haven’t added me to any channels yet!\n\n"
+            "➕ Add me as admin in your channel by below buttonx. 👇",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("➕ Add me to your channel",url=f"https://t.me/{bot_username}?startchannel=true")]]
+            ),
+            disable_web_page_preview=True
+        )
     valid_channels = []
     removed_titles = []
     async def check_channel(ch):
