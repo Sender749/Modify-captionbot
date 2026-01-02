@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y \
 # Upgrade pip and install Python dependencies
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
+RUN pip install imdbpy
 
 # Create logs directory
 RUN mkdir -p /app/logs
