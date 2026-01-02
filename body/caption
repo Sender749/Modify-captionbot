@@ -1,7 +1,4 @@
-import asyncio
-import re
-import os
-import sys
+import sys, time, os, re, asyncio
 from typing import Tuple, List, Optional
 from pyrogram import Client, filters, errors, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ChatMemberUpdated, CallbackQuery
@@ -10,15 +7,11 @@ from pyrogram.enums import ParseMode
 from info import *
 from Script import script
 from body.database import *  
-from body.database import insert_user_check_new, get_channel_cached
+from body.file_forward import *
 from collections import deque, defaultdict
-
-CHANNEL_QUEUES = defaultdict(deque)   # channel_id -> deque[jobs]
-CHANNEL_ORDER = deque()               # round-robin order
-QUEUE_LOCK = asyncio.Lock()
-
-EDIT_DELAY = 2.0  # seconds (not exceed 1.5)
-WORKERS = 1         
+MESSAGE_LINK_RE = re.compile(r"(?:https?://)?t\.me/(?:c/\d+|[A-Za-z0-9_]+)/(\d+)")
+EDIT_DELAY = 2.5  # seconds (not exceed 1.5)
+WORKERS = 3       # make 2 if crash and edit delay 2.2
 CHANNEL_CACHE = {}
 bot_data = {
     "caption_set": {},
@@ -27,6 +20,31 @@ bot_data = {
     "prefix_set": {},
     "replace_words_set": {}
 }
+
+def extract_msg_id_from_text(text: str) -> int | None:
+    if not text:
+        return None
+    m = MESSAGE_LINK_RE.search(text)
+    if m:
+        return int(m.group(1))
+    if text.isdigit():
+        return int(text)
+    return None
+
+async def animate_loading(msg):
+    frames = [
+        "⚙️ Loading your channels",
+        "⚙️ Loading your channels.",
+        "⚙️ Loading your channels..",
+        "⚙️ Loading your channels...",
+    ]
+    while True:
+        for f in frames:
+            try:
+                await msg.edit_text(f)
+            except:
+                return
+            await asyncio.sleep(0.6)
 
 @Client.on_chat_member_updated()
 async def when_added_as_admin(client, chat_member_update):
@@ -44,12 +62,12 @@ async def when_added_as_admin(client, chat_member_update):
         await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
         existing = await get_channel_caption(chat.id)
         if not existing:
-            await addCap(chat.id, DEF_CAP)
             await set_block_words(chat.id, "")
             await set_prefix(chat.id, "")
             await set_suffix(chat.id, "")
             await set_replace_words(chat.id, "")
             await set_link_remover_status(chat.id, False)
+            await set_emoji_remover_status(chat.id, False)
         try:
             msg = await client.send_message(
                 owner_id,
@@ -90,14 +108,11 @@ async def auto_delete_message(msg, delay: int):
 @Client.on_callback_query(filters.regex(r"^settings_cb$"))
 async def settings_button_handler(client: Client, query: CallbackQuery):
     await query.answer()
-
-    async def edit_sender(text, **kwargs):
-        await query.message.edit_text(text, **kwargs)
-
+    loading = await query.message.edit_text("⚙️ Loading your channels...")
     await user_settings(
         client,
         user=query.from_user,
-        send_func=edit_sender
+        send_func=loading.edit_text
     )
 
 @Client.on_callback_query(filters.regex("^help$"))
@@ -137,23 +152,42 @@ async def show_start_ui(
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("➕️ Add me to your channel ➕️", url=f"https://t.me/{bot_username}?startchannel=true")],
-            [InlineKeyboardButton("Hᴇʟᴘ", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
-            [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69")],
+            [InlineKeyboardButton("📂Help", callback_data="help"), InlineKeyboardButton("⚙ Settings", callback_data="settings_cb")],
+            [InlineKeyboardButton("ℹ️ About", callback_data="about_cb")],
         ]
     )
+    text = script.START_TXT.format(mention=mention)
     if edit_message:
         await edit_message.edit_text(
-            text=script.START_TXT.format(mention=mention),
+            text=text,
             reply_markup=keyboard,
             disable_web_page_preview=True
         )
     else:
-        await client.send_photo(
+        await client.send_message(
             chat_id=chat_id,
-            photo=SILICON_PIC,
-            caption=script.START_TXT.format(mention=mention),
-            reply_markup=keyboard
+            text=text,
+            reply_markup=keyboard,
+            disable_web_page_preview=True
         )
+
+@Client.on_callback_query(filters.regex("^about_cb$"))
+async def about_callback(client: Client, query: CallbackQuery):
+    await query.answer()
+    bot = await client.get_me()
+    text = script.ABOUT_TXT.format(
+        bot_name=bot.first_name,
+        bot_username=bot.username
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 Owner", url="https://t.me/Navex_69"),InlineKeyboardButton("⬅️ Back", callback_data="start")]
+    ])
+    await query.message.edit_text(
+        text=text,
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
 
 # ---------------- Commands ----------------
 @Client.on_message(filters.command("start") & filters.private)
@@ -178,15 +212,84 @@ async def start_cmd(client, message):
                 log_text = script.NEW_USER_TXT.format(user=user_clickable, user_id=user_id)
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
             except Exception as e:
-                print(f"[WARN] Failed to send log message for new user: {e}")
+                print(f"[ERROR] log new user: {e}")
     except Exception as e:
-        print(f"[ERROR] in start_cmd: {e}")
+        print(f"[ERROR] start_cmd failed: {e}")
+
+@Client.on_message(filters.private & filters.user(ADMIN) & filters.command("dump_skip"))
+async def dump_skip_cmd(client, message):
+    if len(message.command) != 2:
+        return await message.reply_text(
+            "❌ Usage:\n`/dump_skip -100xxxxxxxxxx`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    try:
+        channel_id = int(message.command[1])
+    except ValueError:
+        return await message.reply_text("❌ Invalid channel ID")
+    await set_dump_skip(channel_id, True)
+    text = "✅ <b>Dump skip enabled</b>\n\n"
+    text += await format_dump_skip_list(client)
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
+
+@Client.on_message(filters.private & filters.user(ADMIN) & filters.command("remove_dump"))
+async def remove_dump_cmd(client, message):
+    if len(message.command) != 2:
+        return await message.reply_text(
+            "❌ Usage:\n`/remove_dump -100xxxxxxxxxx`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    try:
+        channel_id = int(message.command[1])
+    except ValueError:
+        return await message.reply_text("❌ Invalid channel ID")
+    await remove_dump_skip(channel_id)
+    text = "🗑 <b>Dump skip removed</b>\n\n"
+    text += await format_dump_skip_list(client)
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
+
+@Client.on_message(filters.private & filters.command("file_forward"))
+async def ff_start(client, message):
+    uid = message.from_user.id
+    channels = await get_user_channels(uid)
+    if not channels:
+        return await message.reply_text("❌ No admin channels found.")
+    FF_SESSIONS[uid] = {
+        "step": "src",
+        "channels": channels,
+        "expires": None  
+    }
+    kb = [[InlineKeyboardButton(ch["channel_title"], callback_data=f"ff_src_{ch['channel_id']}")] for ch in channels]
+    kb.append([InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")])
+    await message.reply_text("📤 **Select SOURCE channel**", reply_markup=InlineKeyboardMarkup(kb))
         
-@Client.on_message(filters.private & filters.user(ADMIN) & filters.command(["total_users"]))
-async def all_db_users_here(client, message):
-    silicon = await message.reply_text("Please Wait....")
-    silicon_botz = await total_user()
-    await silicon.edit(f"Tᴏᴛᴀʟ Usᴇʀ :- `{silicon_botz}`")
+@Client.on_message(filters.private & filters.user(ADMIN) & filters.command("admin"))
+async def admin_help(client, message):
+    text = script.ADMIN_HELP_TEXT.format(
+        workers=WORKERS,
+        delay=EDIT_DELAY
+    )
+    await message.reply_text(
+        text,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
+
+@Client.on_message(filters.private & filters.user(ADMIN) & filters.command("stats"))
+async def bot_stats(client, message):
+    pending = await queue_col.count_documents({"status": "pending"})
+    processing = await queue_col.count_documents({"status": "processing"})
+    users_count = await total_user()
+    text = (
+        "📊 <b>BOT STATS</b>\n\n"
+        f"• Users: <code>{users_count}</code>\n"
+        f"• Pending Jobs: <code>{pending}</code>\n"
+        f"• Processing Jobs: <code>{processing}</code>\n"
+        f"• Workers: <code>{WORKERS}</code>\n"
+        f"• Edit Delay: <code>{EDIT_DELAY}s</code>\n"
+        f"• Mode: Persistent Queue\n"
+    )
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command(["broadcast"]))
 async def broadcast(client, message):
@@ -236,17 +339,22 @@ async def restart_bot(client, message):
 
 @Client.on_message(filters.command("settings") & filters.private)
 async def settings_cmd(client, message):
-    await user_settings(
-        client,
-        user=message.from_user,
-        send_func=message.reply_text
-    )
+    loading = await message.reply_text("⚙️ Loading your channels...")
+    await user_settings(client, user=message.from_user, send_func=loading.edit_text)
 
 async def user_settings(client: Client,*,user,send_func,):
     user_id = user.id
     channels = await get_user_channels(user_id)
     if not channels:
-        return await send_func("You haven’t added me to any channels yet!")
+        bot = await client.get_me()
+        bot_username = bot.username or BOT_USERNAME
+        return await send_func(
+            "You haven’t added me to any channels yet!\n\n"
+            "➕ Add me as admin in your channel by below buttonx. 👇",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("➕ Add me to your channel",url=f"https://t.me/{bot_username}?startchannel=true")]]
+            ),
+            disable_web_page_preview=True
+        )
     valid_channels = []
     removed_titles = []
     async def check_channel(ch):
@@ -305,35 +413,93 @@ async def reset_db(client, message):
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("queue"))
 async def queue_status(client, message):
-    async with QUEUE_LOCK:
-        total_jobs = sum(len(q) for q in CHANNEL_QUEUES.values())
-        active_channels = len(CHANNEL_QUEUES)
-        top_channels = sorted(
-            CHANNEL_QUEUES.items(),
-            key=lambda x: len(x[1]),
-            reverse=True
-        )[:5]
+    cap_pending = await queue_col.count_documents({"status": "pending"})
+    cap_processing = await queue_col.count_documents({"status": "processing"})
+    cap_pipeline = [
+        {"$match": {"status": "pending"}},
+        {"$group": {"_id": "$chat_id", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]
+    cap_lines = []
+    async for row in queue_col.aggregate(cap_pipeline):
+        ch_id = row["_id"]
+        count = row["count"]
+        try:
+            chat = await client.get_chat(ch_id)
+            name = chat.title
+        except:
+            name = "Unknown"
+        eta = int(count * EDIT_DELAY / WORKERS)
+        cap_lines.append(
+            f"• <b>{name}</b>\n"
+            f"  ├ ID: <code>{ch_id}</code>\n"
+            f"  ├ Jobs: <code>{count}</code>\n"
+            f"  └ ETA: ~{eta//60}m {eta%60}s"
+        )
+    cap_eta_total = int(cap_pending * EDIT_DELAY / WORKERS)
+    f_pending = await forward_queue.count_documents({"status": "pending"})
+    f_processing = await forward_queue.count_documents({"status": "processing"})
+    f_pipeline = [
+        {"$match": {"status": "pending"}},
+        {"$group": {
+            "_id": {
+                "src": "$src",
+                "dst": "$dst"
+            },
+            "count": {"$sum": 1}
+        }},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]
+    forward_lines = []
+    async for row in forward_queue.aggregate(f_pipeline):
+        src = row["_id"]["src"]
+        dst = row["_id"]["dst"]
+        count = row["count"]
+        try:
+            s_chat = await client.get_chat(src)
+            s_name = s_chat.title
+        except:
+            s_name = "Unknown"
+        try:
+            d_chat = await client.get_chat(dst)
+            d_name = d_chat.title
+        except:
+            d_name = "Unknown"
+        eta = int(count * BASE_DELAY / FORWARD_WORKERS)
+        forward_lines.append(
+            f"• <b>{s_name}</b> ➜ <b>{d_name}</b>\n"
+            f"  ├ Jobs: <code>{count}</code>\n"
+            f"  └ ETA: ~{eta//60}m {eta%60}s"
+        )
+    f_eta_total = int(f_pending * BASE_DELAY / FORWARD_WORKERS)
     text = (
-        f"📥 **Caption Queue Status**\n\n"
-        f"• Pending jobs: `{total_jobs}`\n"
-        f"• Active channels: `{active_channels}`\n"
-        f"• Workers: `{WORKERS}`\n"
-        f"• Edit delay: `{EDIT_DELAY}s`\n"
-        f"• Mode: `Per-Channel Fair (Round-Robin)`\n\n"
+        "📊 <b>QUEUE STATUS</b>\n\n"
+        "📝 <b>Caption Queue</b>\n"
+        f"• Pending: <code>{cap_pending}</code>\n"
+        f"• Processing: <code>{cap_processing}</code>\n"
+        f"• Workers: <code>{WORKERS}</code>\n"
+        f"• Edit Delay: <code>{EDIT_DELAY}s</code>\n"
+        f"• Global ETA: ~{cap_eta_total//60}m {cap_eta_total%60}s\n\n"
     )
-    if top_channels:
-        text += "🔥 **Top Busy Channels:**\n"
-        for ch_id, q in top_channels:
-            text += f"• `{ch_id}` → `{len(q)}` jobs\n"
-    load = (
-        "🟢 Normal"
-        if total_jobs < 20 else
-        "🟡 High"
-        if total_jobs < 50 else
-        "🔴 Heavy"
+    if cap_lines:
+        text += "🔥 <b>Top Busy Caption Channels</b>\n" + "\n".join(cap_lines) + "\n\n"
+    else:
+        text += "✅ No caption tasks\n\n"
+    text += (
+        "📦 <b>File Forward Queue</b>\n"
+        f"• Pending: <code>{f_pending}</code>\n"
+        f"• Processing: <code>{f_processing}</code>\n"
+        f"• Workers: <code>{FORWARD_WORKERS}</code>\n"
+        f"• Base Delay: <code>{BASE_DELAY}s</code>\n"
+        f"• Global ETA: ~{f_eta_total//60}m {f_eta_total%60}s\n\n"
     )
-    text += f"\n📊 **Load:** {load}"
-    await message.reply_text(text)
+    if forward_lines:
+        text += "🚚 <b>Top Forward Sessions</b>\n" + "\n".join(forward_lines)
+    else:
+        text += "✅ No forward tasks"
+    await message.reply_text(text, parse_mode=enums.ParseMode.HTML)
 
 # ---------------- Auto Caption core ----------------
 def sanitize_caption_html(text: str) -> str:
@@ -346,45 +512,45 @@ def sanitize_caption_html(text: str) -> str:
     return re.sub(r"</?\s*([a-zA-Z0-9]+)(?:\s[^>]*)?>", repl, text)
 
 async def caption_worker(client: Client):
-    print("[QUEUE] Fair caption worker started")
     while True:
-        msg = caption = None
-        async with QUEUE_LOCK:
-            if CHANNEL_ORDER:
-                channel_id = CHANNEL_ORDER.popleft()
-                queue = CHANNEL_QUEUES.get(channel_id)
-                if queue:
-                    msg, caption = queue.popleft()
-                    if queue:
-                        CHANNEL_ORDER.append(channel_id)
-                    else:
-                        CHANNEL_QUEUES.pop(channel_id, None)
-        if not msg:
-            await asyncio.sleep(0.3)
+        job = await fetch_next_job()
+        if not job:
+            await asyncio.sleep(1)
+            continue
+        if not job.get("caption"):
+            await mark_done(job["_id"])
             continue
         try:
-            await msg.edit_caption(caption, parse_mode=ParseMode.HTML)
+            await client.edit_message_caption(chat_id=job["chat_id"], message_id=job["message_id"], caption=job["caption"], parse_mode=ParseMode.HTML)
+            skip_dump = await is_dump_skip(job["chat_id"])
+            if not skip_dump:
+                try:
+                    original = await client.get_messages(job["chat_id"], job["message_id"])
+                    fname = None
+                    for t in ("document", "video", "audio", "voice"):
+                        obj = getattr(original, t, None)
+                        if obj:
+                            fname = getattr(obj, "file_name", None)
+                            break
+                    if not fname:
+                        fname = "File"
+                    fname = clean_text(fname)
+                    fname = remove_emojis(fname)
+                    await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"], caption=fname)
+                except Exception as e:
+                    print(f"[CP_DUMP_FAIL] {e}")
+            await mark_done(job["_id"])
             await asyncio.sleep(EDIT_DELAY)
         except FloodWait as e:
-            await asyncio.sleep(e.value + 1)
-            try:
-                await msg.edit_caption(caption, parse_mode=ParseMode.HTML)
-                await asyncio.sleep(EDIT_DELAY)
-            except Exception:
-                pass
-        except errors.BadRequest:
-            try:
-                await msg.edit_caption(
-                    strip_links_and_mentions_keep_text(caption),
-                    parse_mode=ParseMode.HTML
-                )
-                await asyncio.sleep(EDIT_DELAY)
-            except Exception:
-                pass
+            await reschedule(job["_id"], delay=e.value + 2)
+            await asyncio.sleep(e.value)
         except errors.MessageNotModified:
-            pass
+            await mark_done(job["_id"])
         except Exception as e:
-            print(f"[QUEUE ERROR] {e}")
+            if job.get("retries", 0) >= 5:
+                await mark_done(job["_id"])
+            else:
+                await reschedule(job["_id"], delay=10)
 
 @Client.on_message(filters.channel & filters.media)
 async def reCap(client, msg):
@@ -407,10 +573,13 @@ async def reCap(client, msg):
             break
     if not file_name:
         return
-    # Fetch channel settings
     cap_doc = await get_channel_cached(chnl_id)
-    cap_template = cap_doc.get("caption") or "{file_name} ({file_size})"
+    # Fetch channel settings
+    cap_template = cap_doc.get("caption")
+    if not cap_template:
+        return
     link_remover_on = bool(cap_doc.get("link_remover", False))
+    emoji_remover_on = bool(cap_doc.get("emoji_remover", False))
     blocked_words_raw = cap_doc.get("block_words", "")
     suffix = cap_doc.get("suffix", "") or ""
     prefix = cap_doc.get("prefix", "") or ""
@@ -438,7 +607,6 @@ async def reCap(client, msg):
             year=year or ""
         )
     except Exception as e:
-        print(f"[ERROR] Caption format error: {e}")
         new_caption = cap_template
     if blocked_words_raw:
         new_caption = apply_block_words(new_caption, blocked_words_raw)
@@ -452,23 +620,19 @@ async def reCap(client, msg):
         new_caption = f"{prefix}\n{new_caption}".strip()
     if suffix:
         new_caption = f"{new_caption}\n{suffix}".strip()
+    if emoji_remover_on:
+        new_caption = remove_emojis(new_caption)
     if language and contains_language(raw_file_name, language):
         language = ""
-    # Clean caption
     new_caption = new_caption.strip()
     if "<" in new_caption and ">" in new_caption:
         new_caption = sanitize_caption_html(new_caption)
-    # Push caption edit job to queue
-    async with QUEUE_LOCK:
-        if chnl_id not in CHANNEL_QUEUES:
-            CHANNEL_ORDER.append(chnl_id)
-        CHANNEL_QUEUES[chnl_id].append((msg, new_caption))
-    # Optional debug (fair queue)
-    async with QUEUE_LOCK:
-        total_jobs = sum(len(q) for q in CHANNEL_QUEUES.values())
-    if total_jobs % 10 == 0 and total_jobs > 0:
-        print(f"[QUEUE] Pending jobs: {total_jobs}")
-
+    await enqueue_caption({
+        "chat_id": msg.chat.id,
+        "message_id": msg.id,
+        "caption": new_caption,
+        "user_id": msg.from_user.id if msg.from_user else None
+    })
 
 # ---------------- Helper functions ----------------
 def _status_name(member_obj):
@@ -553,6 +717,42 @@ MENTION_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
 MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+|tg:\/\/[^\)]+)\)', flags=re.IGNORECASE)
 HTML_A_RE = re.compile(r'<a\s+[^>]*href=["\'](?:https?:\/\/|tg:\/)[^"\']+["\'][^>]*>(.*?)</a>', flags=re.IGNORECASE)
 TG_USER_LINK_RE = re.compile(r'\[([^\]]+)\]\(tg:\/\/user\?id=\d+\)', flags=re.IGNORECASE)
+
+EMOJI_LIST = [
+    "😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰","😘","😗","😙","😚","😋","😜","😝","😛",
+    "🤪","🤨","🧐","🤓","😎","🥸","🤩","🥳","😏","😒","😞","😔","😟","😕","🙁","☹️","😣","😖","😫","😩","🥺","😢","😭",
+    "😤","😠","😡","🤬","🤯","😳","🥵","🥶","😱","😨","😰","😥","😓","🤗","🤔","🫣","🤭","🫢","🤫","🤥","😶","😐",
+    "😑","😬","🙄","😯","😦","😧","😮","😲","🥱","😴","🤤","😪","😵","🤐","🥴","🤢","🤮","🤧","😷","🤒","🤕",
+    "👍","👎","👌","✌️","🤞","🤟","🤘","🤙","🫶","👏","🙌","👐","🤲","🙏","✋","🖐","🖖","👋","🤚","🫱","🫲",
+    "✍️","💪","🦾","🦿","❤️","🧡","💛","💚","💙","💜","🤎","🖤","🤍","💔","❣️","💕","💞","💓","💗","💖","💘","💝",
+    "💯","✔️","✅","❌","❎","⚠️","🚫","⭕","❗","❓","🔥","💥","✨","🌟","⚡","💫","🎉","🎊","🎬","🎞","📽","🎥","📺","📼","🎧","🎵","🎶","🎼",
+    "🍿","📀","💿","📌","📍","📎","📂","📁","📄","🗂","🗃","🔔","🔕","📢","📣","📯",
+    "🚀","🛸","🚨","🧨","⬆️","⬇️","➡️","⬅️","🔁","🔄","⏩","⏪","⏭","⏮",
+]
+
+def remove_emojis(text: str) -> str:
+    if not text:
+        return text
+    for emo in EMOJI_LIST:
+        text = text.replace(emo, "")
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+async def format_dump_skip_list(client: Client) -> str:
+    items = await get_all_dump_skip_channels()
+    if not items:
+        return "📭 <b>No dump-skip channels</b>"
+    lines = ["📌 <b>Dump-skip channels:</b>\n"]
+    for doc in items:
+        cid = doc["chnl_id"]
+        try:
+            chat = await client.get_chat(cid)
+            title = chat.title
+        except:
+            title = "Unknown / Bot not in channel"
+        lines.append(f"• <b>{title}</b>\n  <code>{cid}</code>")
+    return "\n".join(lines)
 
 def build_smart_filename(
     base_name: str,
@@ -780,13 +980,13 @@ def apply_replacements(text: str, pairs: List[Tuple[str, str]]) -> str:
 @Client.on_message(filters.private)
 async def capture_user_input(client, message):
     user_id = message.from_user.id
-    active_users = (
-        set(bot_data.get("caption_set", {})) |
-        set(bot_data.get("block_words_set", {})) |
-        set(bot_data.get("replace_words_set", {})) |
-        set(bot_data.get("prefix_set", {})) |
-        set(bot_data.get("suffix_set", {}))
-    )
+    active_users = set()
+    active_users.update(bot_data.get("caption_set", {}).keys())
+    active_users.update(bot_data.get("block_words_set", {}).keys())
+    active_users.update(bot_data.get("replace_words_set", {}).keys())
+    active_users.update(bot_data.get("prefix_set", {}).keys())
+    active_users.update(bot_data.get("suffix_set", {}).keys())
+    active_users.update(FF_SESSIONS.keys())  
     if user_id not in active_users:
         return
     text = (
@@ -869,10 +1069,7 @@ async def capture_user_input(client, message):
             chat_id=user_id,
             message_id=instr_msg_id,
             text="✅ Prefix updated!",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]
-            )
-        )
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩ Back", callback_data=f"back_to_suffixprefix_{channel_id}")]]))
         return
 
     # ---------- SUFFIX ----------
@@ -895,3 +1092,59 @@ async def capture_user_input(client, message):
             )
         )
         return
+
+    # ================= FILE FORWARD SKIP HANDLER =================
+    if user_id in FF_SESSIONS:
+        session = FF_SESSIONS[user_id]
+
+        # session expired
+        if session.get("expires") and session["expires"] < time.time():
+            FF_SESSIONS.pop(user_id, None)
+            await message.reply_text("⏰ Session expired.\nStart again using /file_forward")
+            return
+
+        # waiting for skip message id / link
+        if session.get("step") == "skip":
+            raw = (message.text or "").strip()
+            msg_id = extract_msg_id_from_text(raw)
+
+            if msg_id is None:
+                await message.reply_text(
+                    "❌ Invalid message.\n\n"
+                    "Send:\n"
+                    "• Telegram message link\n"
+                    "• OR message ID number"
+                )
+                return
+
+            # store skip id
+            session["skip"] = int(msg_id)
+            session["step"] = "queue"
+
+            # -------- delete user's skip input --------
+            try:
+                await message.delete()
+            except:
+                pass
+
+            # -------- delete previous instruction message --------
+            try:
+                await client.delete_messages(
+                    session["chat_id"],
+                    session["msg_id"]
+                )
+            except:
+                pass
+
+            # -------- send NEW progress message --------
+            progress_msg = await client.send_message(
+                session["chat_id"],
+                "🚚 Preparing forwarding…"
+            )
+
+            # store progress message id for live updates
+            session["msg_id"] = progress_msg.id
+
+            # -------- enqueue jobs --------
+            await enqueue_forward_jobs(client, user_id)
+            return
