@@ -211,8 +211,8 @@ async def start_cmd(client, message):
                     user_clickable = f"{user_name}"
                 log_text = script.NEW_USER_TXT.format(user=user_clickable, user_id=user_id)
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[ERROR] in start_cmd: {e}")
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("dump_skip"))
 async def dump_skip_cmd(client, message):
