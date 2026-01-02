@@ -1,6 +1,6 @@
 import asyncio
 import time
-import uuid
+import uuid, re
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import FloodWait
@@ -10,6 +10,10 @@ FF_SESSIONS = {}
 CANCELLED_SESSIONS = set()
 FORWARD_WORKERS = 2
 BASE_DELAY = 1
+USERNAME_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
+URL_RE = re.compile(r'(https?://\S+|t\.me/\S+)', flags=re.IGNORECASE)
+HTML_TAG_RE = re.compile(r'<[^>]+>')
+MD_LINK_RE = re.compile(r'\[([^\]]+)\]\([^)]+\)')
 
 ANIM_FRAMES = [
     "🔄 Transferring files",
@@ -22,6 +26,16 @@ ANIM_FRAMES = [
 def on_bot_start(client: Client):
     for _ in range(FORWARD_WORKERS):
         asyncio.create_task(forward_worker(client))
+
+def clean_text(text: str) -> str:
+    if not text:
+        return ""
+    text = MD_LINK_RE.sub(r'\1', text)
+    text = HTML_TAG_RE.sub('', text)
+    text = URL_RE.sub('', text)
+    text = USERNAME_RE.sub('', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
 # ---------- SOURCE ----------
 @Client.on_callback_query(filters.regex(r"^ff_src_(-?\d+)$"))
@@ -79,7 +93,6 @@ async def enqueue_forward_jobs(client: Client, uid: int):
     src = s["source"]
     dst = s["destination"]
     skip_id = int(s["skip"])
-    print(f"[FF] START ENQUEUE src={src} dst={dst} skip={skip_id}")
     s["total"] = 0
     msg_id = skip_id + 1
     consecutive_missing = 0
@@ -92,7 +105,6 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         if not msg:
             consecutive_missing += 1
             if consecutive_missing >= MAX_CONSECUTIVE_MISSING:
-                print("[FF] stopping: too many missing IDs ahead")
                 break
             msg_id += 1
             continue
@@ -118,7 +130,6 @@ async def enqueue_forward_jobs(client: Client, uid: int):
         {"src": src, "dst": dst, "total": 0},
         {"$set": {"total": s["total"]}}
     )
-    print(f"[FF] ENQUEUED TOTAL = {s['total']}")
     await client.edit_message_text(
         s["chat_id"],
         s["msg_id"],
@@ -132,7 +143,6 @@ async def enqueue_forward_jobs(client: Client, uid: int):
 
 # ---------- WORKER ----------
 async def forward_worker(client: Client):
-    print("[FORWARD] worker started")
     while True:
         job = await fetch_forward_job()
         if not job:
@@ -154,18 +164,22 @@ async def forward_worker(client: Client):
             )
             job_user = job.get("user_id")
             if job_user == ADMIN:
-                print(f"[FF_DUMP_SKIP] admin user {ADMIN}")
+                pass
             else:
                 try:
-                    print(f"[FF_DUMP] src={job['src']} msg={msg_id} → dump={FF_CH}")
-                    await client.copy_message(
-                        chat_id=FF_CH,
-                        from_chat_id=job["src"],
-                        message_id=msg_id
-                    )
-                    print("[FF_DUMP_OK]")
+                    msg = await client.get_messages(job["src"], msg_id)
+                    fname = None
+                    for t in ("document", "video", "audio", "voice"):
+                        obj = getattr(msg, t, None)
+                        if obj:
+                            fname = getattr(obj, "file_name", None)
+                            break
+                    if not fname:
+                        fname = "File"
+                    fname = clean_text(fname)
+                    caption = f"{fname}"
+                    await client.copy_message(chat_id=FF_CH, from_chat_id=job["src"], message_id=msg_id, caption=caption)
                 except Exception as e:
-                    print(f"[FF_DUMP_FAIL] {type(e).__name__}: {e}")
             await forward_done(job["_id"])
             await update_forward_progress(client, job)
             await asyncio.sleep(BASE_DELAY)
@@ -199,9 +213,9 @@ async def update_forward_progress(client: Client, job):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="ff_cancel")]]))
     except:
         pass
-    remaining = await forward_queue.count_documents({"session_id": session_id})
+    remaining = await forward_queue.count_documents({"session_id": session})
     if remaining == 0:
-        total = job.get("total", 0)
+        total = job.get("total") or 0
         try:
             await client.edit_message_text(
                 job["chat_id"],
