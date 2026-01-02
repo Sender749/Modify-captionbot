@@ -76,6 +76,7 @@ async def ff_dst(client, query):
         "⏭ <b>Send MESSAGE LINK or MESSAGE ID to skip upto</b>\n\n"
         "Example:\n"
         "`https://t.me/c/1815162626/2458`\n\n"
+        "• Send <b>0</b> to forward all files\n"
         "• Forwarding starts <b>AFTER</b> this message\n"
         "• Session expires in <b>15 minutes</b>",
         reply_markup=InlineKeyboardMarkup(
