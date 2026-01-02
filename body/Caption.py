@@ -55,12 +55,14 @@ async def when_added_as_admin(client, chat_member_update):
             return
         owner = getattr(chat_member_update, "from_user", None)
         if not owner:
+            print(f"[INFO] Bot added manually to: {chat.title}")
             return
         owner_id = owner.id
         owner_name = owner.first_name or "Unknown User"
         await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
         existing = await get_channel_caption(chat.id)
         if not existing:
+            await addCap(chat.id, DEF_CAP)
             await set_block_words(chat.id, "")
             await set_prefix(chat.id, "")
             await set_suffix(chat.id, "")
@@ -74,6 +76,7 @@ async def when_added_as_admin(client, chat_member_update):
                     [InlineKeyboardButton("⚙️ Open Settings", callback_data="settings_cb")]
                 ])
             )
+            print(f"[NEW] Added to {chat.title} by {owner_name} ({owner_id})")
             try:
                 if chat.username:
                     channel_link = f"https://t.me/{chat.username}"
@@ -87,10 +90,13 @@ async def when_added_as_admin(client, chat_member_update):
                     channel_id=chat.id
                 )
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
-            except Exception:
-                asyncio.create_task(auto_delete_message(msg, 60))
             except Exception as e:
-                print(f"[ADMIN_ADD_ERROR] {e}")
+                print(f"[WARN] Failed to send log message: {e}")
+            asyncio.create_task(auto_delete_message(msg, 60))
+        except Exception as e:
+            print(f"[WARN] Could not notify user: {e}")
+    except Exception as e:
+        print(f"[ERROR] when_added_as_admin: {e}")
 
 async def auto_delete_message(msg, delay: int):
     await asyncio.sleep(delay)
