@@ -89,8 +89,6 @@ async def when_added_as_admin(client, chat_member_update):
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
             except Exception as e:
                 asyncio.create_task(auto_delete_message(msg, 60))
-        except Exception as e:
-    except Exception as e:
 
 async def auto_delete_message(msg, delay: int):
     await asyncio.sleep(delay)
