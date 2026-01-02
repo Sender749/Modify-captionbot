@@ -262,12 +262,21 @@ async def get_channel_title_fast(user_id: int, channel_id: int) -> str:
 async def get_channel_cached(channel_id: int):
     now = time.time()
     cached = _CHANNEL_CACHE.get(channel_id)
-
     if cached and now - cached["ts"] < CACHE_TTL:
         return cached["data"]
-
     doc = await chnl_ids.find_one({"chnl_id": channel_id}) or {}
     _CHANNEL_CACHE[channel_id] = {"data": doc, "ts": now}
     return doc
 
+# ---------------- Emoji remover ----------------
+async def get_emoji_remover_status(channel_id: int) -> bool:
+    doc = await chnl_ids.find_one({"chnl_id": channel_id})
+    return bool(doc.get("emoji_remover", False)) if doc else False
+
+async def set_emoji_remover_status(channel_id: int, status: bool):
+    await chnl_ids.update_one(
+        {"chnl_id": channel_id},
+        {"$set": {"emoji_remover": bool(status)}},
+        upsert=True
+    )
 
