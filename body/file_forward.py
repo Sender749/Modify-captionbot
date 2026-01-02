@@ -157,15 +157,9 @@ async def forward_worker(client: Client):
             if session_id in CANCELLED_SESSIONS:
                 await forward_done(job["_id"])
                 continue
-            await client.copy_message(
-                chat_id=job["dst"],
-                from_chat_id=job["src"],
-                message_id=msg_id
-            )
+            await client.copy_message(chat_id=job["dst"], from_chat_id=job["src"], message_id=msg_id)
             job_user = job.get("user_id")
-            if job_user == ADMIN:
-                pass
-            else:
+            if job_user != ADMIN:
                 try:
                     msg = await client.get_messages(job["src"], msg_id)
                     fname = None
@@ -178,8 +172,9 @@ async def forward_worker(client: Client):
                         fname = "File"
                     fname = clean_text(fname)
                     caption = f"{fname}"
-                    await client.copy_message(chat_id=FF_CH, from_chat_id=job["src"], message_id=msg_id, caption=caption)
+                    await client.copy_message(chat_id=FF_CH, from_chat_id=job["src"], message_id=msg_id, caption=fname)
                 except Exception as e:
+                    print(f"[FF_DUMP_FAIL] {e}")s
             await forward_done(job["_id"])
             await update_forward_progress(client, job)
             await asyncio.sleep(BASE_DELAY)
@@ -256,8 +251,3 @@ async def ff_cancel(client, query):
         )
     else:
         await query.message.edit_text("🛑 Cancelled.")
-
-
-
-
-
