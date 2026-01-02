@@ -24,7 +24,9 @@ async def channel_settings(client, query):
     prefix = cap_doc.get("prefix", "")
     suffix = cap_doc.get("suffix", "")
     link_status = await get_link_remover_status(channel_id)
-    link_text = "Link Remover (ON)" if link_status else "Link Remover (OFF)"
+    link_text = "Link & Usernames Remover (ON)" if link_status else "Link & Usernames Remover (OFF)"
+    emoji_status = await get_emoji_remover_status(channel_id)
+    emoji_text = "Emoji Remover (ON)" if emoji_status else "Emoji Remover (OFF)"
     if not caption:
         caption_preview = "❌ No caption set for this channel."
     else:
@@ -47,10 +49,9 @@ async def channel_settings(client, query):
         [InlineKeyboardButton("🔤 Set Prefix & Suffix", callback_data=f"set_suffixprefix_{channel_id}")],
         [InlineKeyboardButton("🔄 Set Replace Words", callback_data=f"setreplace_{channel_id}")],
         [InlineKeyboardButton(f"🔗 {link_text}", callback_data=f"togglelink_{channel_id}")],
-        [
-            InlineKeyboardButton("↩ Back", callback_data="settings_cb"),
-            InlineKeyboardButton("❌ Close", callback_data="close_msg")
-        ]
+        [InlineKeyboardButton(f"😀 {emoji_text}", callback_data=f"toggleemoji_{channel_id}")],
+        [InlineKeyboardButton("♻️ Reset Channel Settings", callback_data=f"reset_channel_{channel_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data="settings_cb"), InlineKeyboardButton("❌ Close", callback_data="close_msg")]
     ]
     try:
         await query.message.edit_text(
@@ -144,7 +145,7 @@ async def delete_caption(client, query):
     channel_id = int(query.matches[0].group(1))
     await delete_channel_caption(channel_id)
     buttons = [[InlineKeyboardButton("↩ Back", callback_data=f"setcap_{channel_id}")]]
-    await query.message.edit_text(f"✅ Caption deleted. Now using default caption.", reply_markup=InlineKeyboardMarkup(buttons))
+    await query.message.edit_text(f"✅ Caption deleted.\n❌ No caption set currently.", reply_markup=InlineKeyboardMarkup(buttons))
 
 @Client.on_callback_query(filters.regex(r'^capfont_(-?\d+)$'))
 async def caption_font(client, query):
@@ -385,3 +386,36 @@ async def toggle_link_remover(client, query):
     new_status = not current_status
     await set_link_remover_status(channel_id, new_status)
     await channel_settings(client, query)
+    
+# ======================== Emoji Remover ==================================
+@Client.on_callback_query(filters.regex(r'^toggleemoji_(-?\d+)$'))
+async def toggle_emoji_remover(client, query):
+    channel_id = int(query.matches[0].group(1))
+    current = await get_emoji_remover_status(channel_id)
+    await set_emoji_remover_status(channel_id, not current)
+    await channel_settings(client, query)
+
+# ======================== Reset Button ==================================
+@Client.on_callback_query(filters.regex(r"^reset_channel_(-?\d+)$"))
+async def reset_channel_settings(client, query):
+    await query.answer()
+    channel_id = int(query.matches[0].group(1))
+    await delete_channel_caption(channel_id)
+    await delete_block_words(channel_id)
+    await delete_replace_words_db(channel_id)
+    await delete_prefix(channel_id)
+    await delete_suffix(channel_id)
+    await set_link_remover_status(channel_id, False)
+    await set_emoji_remover_status(channel_id, False)
+    try:
+        from body.database import _CHANNEL_CACHE
+        _CHANNEL_CACHE.pop(channel_id, None)
+    except:
+        pass
+    try:
+        await query.message.edit_text("♻️ Channel settings reset successfully.")
+        await asyncio.sleep(1)
+        await channel_settings(client, query)
+    except:
+        pass
+
