@@ -227,7 +227,6 @@ async def update_forward_progress(client: Client, job):
                     "✅ <b>Forwarding completed</b>\n\n"
                     f"📤 <b>Source:</b> {job['source_title']}\n"
                     f"📥 <b>Destination:</b> {job['destination_title']}\n\n"
-                    f"📦 <b>Total files forwarded:</b> <code>{total}</code>"
                 )
             )
         except:
