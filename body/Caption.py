@@ -62,12 +62,12 @@ async def when_added_as_admin(client, chat_member_update):
         await add_user_channel(owner_id, chat.id, chat.title or "Unnamed Channel")
         existing = await get_channel_caption(chat.id)
         if not existing:
-            await addCap(chat.id, DEF_CAP)
             await set_block_words(chat.id, "")
             await set_prefix(chat.id, "")
             await set_suffix(chat.id, "")
             await set_replace_words(chat.id, "")
             await set_link_remover_status(chat.id, False)
+            await set_emoji_remover_status(chat.id, False)
         try:
             msg = await client.send_message(
                 owner_id,
@@ -535,6 +535,7 @@ async def caption_worker(client: Client):
                     if not fname:
                         fname = "File"
                     fname = clean_text(fname)
+                    fname = remove_emojis(fname)
                     await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"], caption=fname)
                 except Exception as e:
                     print(f"[CP_DUMP_FAIL] {e}")
@@ -578,6 +579,7 @@ async def reCap(client, msg):
     if not cap_template:
         return
     link_remover_on = bool(cap_doc.get("link_remover", False))
+    emoji_remover_on = bool(cap_doc.get("emoji_remover", False))
     blocked_words_raw = cap_doc.get("block_words", "")
     suffix = cap_doc.get("suffix", "") or ""
     prefix = cap_doc.get("prefix", "") or ""
@@ -618,6 +620,8 @@ async def reCap(client, msg):
         new_caption = f"{prefix}\n{new_caption}".strip()
     if suffix:
         new_caption = f"{new_caption}\n{suffix}".strip()
+    if emoji_remover_on:
+        new_caption = remove_emojis(new_caption)
     if language and contains_language(raw_file_name, language):
         language = ""
     new_caption = new_caption.strip()
@@ -713,6 +717,27 @@ MENTION_RE = re.compile(r'@\w+', flags=re.IGNORECASE)
 MD_LINK_RE = re.compile(r'\[([^\]]+)\]\((?:https?:\/\/[^\)]+|tg:\/\/[^\)]+)\)', flags=re.IGNORECASE)
 HTML_A_RE = re.compile(r'<a\s+[^>]*href=["\'](?:https?:\/\/|tg:\/)[^"\']+["\'][^>]*>(.*?)</a>', flags=re.IGNORECASE)
 TG_USER_LINK_RE = re.compile(r'\[([^\]]+)\]\(tg:\/\/user\?id=\d+\)', flags=re.IGNORECASE)
+
+EMOJI_LIST = [
+    "😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰","😘","😗","😙","😚","😋","😜","😝","😛",
+    "🤪","🤨","🧐","🤓","😎","🥸","🤩","🥳","😏","😒","😞","😔","😟","😕","🙁","☹️","😣","😖","😫","😩","🥺","😢","😭",
+    "😤","😠","😡","🤬","🤯","😳","🥵","🥶","😱","😨","😰","😥","😓","🤗","🤔","🫣","🤭","🫢","🤫","🤥","😶","😐",
+    "😑","😬","🙄","😯","😦","😧","😮","😲","🥱","😴","🤤","😪","😵","🤐","🥴","🤢","🤮","🤧","😷","🤒","🤕",
+    "👍","👎","👌","✌️","🤞","🤟","🤘","🤙","🫶","👏","🙌","👐","🤲","🙏","✋","🖐","🖖","👋","🤚","🫱","🫲",
+    "✍️","💪","🦾","🦿","❤️","🧡","💛","💚","💙","💜","🤎","🖤","🤍","💔","❣️","💕","💞","💓","💗","💖","💘","💝",
+    "💯","✔️","✅","❌","❎","⚠️","🚫","⭕","❗","❓","🔥","💥","✨","🌟","⚡","💫","🎉","🎊","🎬","🎞","📽","🎥","📺","📼","🎧","🎵","🎶","🎼",
+    "🍿","📀","💿","📌","📍","📎","📂","📁","📄","🗂","🗃","🔔","🔕","📢","📣","📯",
+    "🚀","🛸","🚨","🧨","⬆️","⬇️","➡️","⬅️","🔁","🔄","⏩","⏪","⏭","⏮",
+]
+
+def remove_emojis(text: str) -> str:
+    if not text:
+        return text
+    for emo in EMOJI_LIST:
+        text = text.replace(emo, "")
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 async def format_dump_skip_list(client: Client) -> str:
     items = await get_all_dump_skip_channels()
