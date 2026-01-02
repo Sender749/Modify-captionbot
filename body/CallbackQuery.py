@@ -50,7 +50,7 @@ async def channel_settings(client, query):
         [InlineKeyboardButton("🔄 Set Replace Words", callback_data=f"setreplace_{channel_id}")],
         [InlineKeyboardButton(f"🔗 {link_text}", callback_data=f"togglelink_{channel_id}")],
         [InlineKeyboardButton(f"😀 {emoji_text}", callback_data=f"toggleemoji_{channel_id}")],
-        [InlineKeyboardButton("♻️ Reset Channel", callback_data=f"reset_channel_{channel_id}")],
+        [InlineKeyboardButton("♻️ Reset Channel Settings", callback_data=f"reset_channel_{channel_id}")],
         [InlineKeyboardButton("↩ Back", callback_data="settings_cb"), InlineKeyboardButton("❌ Close", callback_data="close_msg")]
     ]
     try:
