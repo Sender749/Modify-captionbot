@@ -176,6 +176,7 @@ async def forward_worker(client: Client):
                     if not fname:
                         fname = "File"
                     fname = clean_text(fname)
+                    fname = remove_emojis(fname)
                     await client.copy_message(
                         chat_id=FF_CH,
                         from_chat_id=job["src"],
