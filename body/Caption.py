@@ -55,7 +55,6 @@ async def when_added_as_admin(client, chat_member_update):
             return
         owner = getattr(chat_member_update, "from_user", None)
         if not owner:
-            print(f"[INFO] Bot added manually to: {chat.title}")
             return
         owner_id = owner.id
         owner_name = owner.first_name or "Unknown User"
@@ -75,7 +74,6 @@ async def when_added_as_admin(client, chat_member_update):
                     [InlineKeyboardButton("⚙️ Open Settings", callback_data="settings_cb")]
                 ])
             )
-            print(f"[NEW] Added to {chat.title} by {owner_name} ({owner_id})")
             try:
                 if chat.username:
                     channel_link = f"https://t.me/{chat.username}"
@@ -90,12 +88,9 @@ async def when_added_as_admin(client, chat_member_update):
                 )
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
             except Exception as e:
-                print(f"[WARN] Failed to send log message: {e}")
             asyncio.create_task(auto_delete_message(msg, 60))
         except Exception as e:
-            print(f"[WARN] Could not notify user: {e}")
     except Exception as e:
-        print(f"[ERROR] when_added_as_admin: {e}")
 
 async def auto_delete_message(msg, delay: int):
     await asyncio.sleep(delay)
@@ -211,9 +206,7 @@ async def start_cmd(client, message):
                 log_text = script.NEW_USER_TXT.format(user=user_clickable, user_id=user_id)
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
             except Exception as e:
-                print(f"[WARN] Failed to send log message for new user: {e}")
     except Exception as e:
-        print(f"[ERROR] in start_cmd: {e}")
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("dump_skip"))
 async def dump_skip_cmd(client, message):
@@ -511,7 +504,6 @@ def sanitize_caption_html(text: str) -> str:
     return re.sub(r"</?\s*([a-zA-Z0-9]+)(?:\s[^>]*)?>", repl, text)
 
 async def caption_worker(client: Client):
-    print("[QUEUE] Persistent worker started")
     while True:
         job = await fetch_next_job()
         if not job:
@@ -523,18 +515,21 @@ async def caption_worker(client: Client):
         try:
             await client.edit_message_caption(chat_id=job["chat_id"], message_id=job["message_id"], caption=job["caption"], parse_mode=ParseMode.HTML)
             skip_dump = await is_dump_skip(job["chat_id"])
-            if skip_dump:
-                print(f"[CP_DUMP_SKIP] chat={job['chat_id']}")
-            else:
+            if not skip_dump:
                 try:
-                    print(
-                        f"[CP_DUMP] chat={job['chat_id']} "
-                        f"msg={job['message_id']} → dump={CP_CH}"
-                    )
-                    await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"])
-                    print("[CP_DUMP_OK]")
+                    original = await client.get_messages(job["chat_id"], job["message_id"])
+                    fname = None
+                    for t in ("document", "video", "audio", "voice"):
+                        obj = getattr(original, t, None)
+                        if obj:
+                            fname = getattr(obj, "file_name", None)
+                            break
+                    if not fname:
+                            fname = "File"
+                    fname = clean_text(fname)
+                    caption = f"{fname}"
+                    await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"], caption=caption)
                 except Exception as e:
-                    print(f"[CP_DUMP_FAIL] {type(e).__name__}: {e}")
             await mark_done(job["_id"])
             await asyncio.sleep(EDIT_DELAY)
         except FloodWait as e:
@@ -543,7 +538,6 @@ async def caption_worker(client: Client):
         except errors.MessageNotModified:
             await mark_done(job["_id"])
         except Exception as e:
-            print("[CP_ERROR]", type(e).__name__, e)
             if job.get("retries", 0) >= 5:
                 await mark_done(job["_id"])
             else:
@@ -603,7 +597,6 @@ async def reCap(client, msg):
             year=year or ""
         )
     except Exception as e:
-        print(f"[ERROR] Caption format error: {e}")
         new_caption = cap_template
     if blocked_words_raw:
         new_caption = apply_block_words(new_caption, blocked_words_raw)
