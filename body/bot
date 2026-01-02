@@ -36,8 +36,6 @@ class Bot(Client):
         await recover_stuck_jobs()
         for _ in range(WORKERS):
             asyncio.create_task(caption_worker(self))
-        from body.file_forward import on_bot_start
-        on_bot_start(self)
         me = await self.get_me()
         self.force_channel = FORCE_SUB
         if FORCE_SUB:
@@ -46,13 +44,10 @@ class Bot(Client):
             except Exception:
                 print("⚠️ Bot must be admin in force-sub channel")
                 self.force_channel = None
-        try:
-            await self.get_chat(int(LOG_CH))
-            await self.get_chat(int(DUMP_CH))
-            print("✅ Log & Dump channels cached")
-        except Exception as e:
-            print(f"⚠️ Cache error: {e}")
-
+        print("========== DUMP CHANNEL DEBUG ==========")
+        print(f"FF_CH = {FF_CH} | type = {type(FF_CH)}")
+        print(f"CP_CH = {CP_CH} | type = {type(CP_CH)}")
+        print("========================================")
         print(f"{me.first_name} is started ✨")
         try:
             await self.send_message(ADMIN, f"**{me.first_name} started ✨**")
@@ -60,16 +55,12 @@ class Bot(Client):
             pass
 
     async def _run_plugin_startup_hooks(self):
-        """Automatically call on_bot_start(client) in every plugin"""
         package = importlib.import_module(PLUGIN_ROOT)
-
         for _, module_name, _ in pkgutil.iter_modules(package.__path__):
             module = importlib.import_module(f"{PLUGIN_ROOT}.{module_name}")
-
             hook = getattr(module, "on_bot_start", None)
             if callable(hook):
                 print(f"🔌 Running startup hook: {module_name}.on_bot_start()")
                 hook(self)
-
 
 Bot().run()
