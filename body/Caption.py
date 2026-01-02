@@ -212,7 +212,9 @@ async def start_cmd(client, message):
                 log_text = script.NEW_USER_TXT.format(user=user_clickable, user_id=user_id)
                 await client.send_message(LOG_CH, log_text, disable_web_page_preview=True)
             except Exception as e:
-                print(f"[ERROR] in start_cmd: {e}")
+                print(f"[ERROR] log new user: {e}")
+    except Exception as e:
+        print(f"[ERROR] start_cmd failed: {e}")
 
 @Client.on_message(filters.private & filters.user(ADMIN) & filters.command("dump_skip"))
 async def dump_skip_cmd(client, message):
@@ -533,7 +535,7 @@ async def caption_worker(client: Client):
                     if not fname:
                         fname = "File"
                     fname = clean_text(fname)
-                    await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"], caption=caption)
+                    await client.copy_message(chat_id=CP_CH, from_chat_id=job["chat_id"], message_id=job["message_id"], caption=fname)
                 except Exception as e:
                     print(f"[CP_DUMP_FAIL] {e}")
             await mark_done(job["_id"])
