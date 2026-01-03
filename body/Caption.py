@@ -623,8 +623,6 @@ async def reCap(client, msg):
         new_caption = f"{new_caption}\n{suffix}".strip()
     if emoji_remover_on:
         new_caption = remove_emojis(new_caption)
-    if language and extract_audio_languages(raw_file_name, language):
-        language = ""
     new_caption = new_caption.strip()
     if "<" in new_caption and ">" in new_caption:
         new_caption = sanitize_caption_html(new_caption)
